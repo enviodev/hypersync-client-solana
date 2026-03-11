@@ -1,0 +1,20 @@
+[package]
+name = "hypersync-client-solana"
+version = "0.1.0"
+edition = "2021"
+description = "Rust client for Solana HyperSync"
+
+[dependencies]
+anyhow = "1"
+arrow = { version = "57", features = ["ipc"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time", "sync", "rt"] }
+tracing = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# When used standalone, change these to: { path = "../hypersync-solana-net-types" }
+# When used as path dep from main repo, point to the main repo's copies:
+hypersync-solana-net-types = { path = "../../crates/hypersync-solana-net-types" }
+hypersync-solana-schema = { path = "../../crates/hypersync-solana-schema" }
