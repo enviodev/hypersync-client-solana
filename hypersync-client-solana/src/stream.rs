@@ -62,7 +62,8 @@ pub fn stream_arrow(
                     Ok(resp) => {
                         // Adaptive batch sizing based on response bytes
                         let bytes = resp.response_bytes as u64;
-                        if bytes > config.response_bytes_ceiling && batch_size > config.min_batch_size
+                        if bytes > config.response_bytes_ceiling
+                            && batch_size > config.min_batch_size
                         {
                             batch_size = cmp::max(config.min_batch_size, batch_size / 2);
                             tracing::debug!(

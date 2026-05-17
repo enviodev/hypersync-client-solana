@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "hypersync-client-solana",
+    "hypersync-solana-net-types",
+    "hypersync-solana-schema",
+]
+
+[workspace.dependencies]
+arrow = "57"
