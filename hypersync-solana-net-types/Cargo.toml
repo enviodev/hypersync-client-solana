@@ -2,6 +2,14 @@
 name = "hypersync-solana-net-types"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
+description = "Network types shared between Solana HyperSync clients and servers"
+license = "MPL-2.0"
+repository = "https://github.com/enviodev/hypersync-client-solana"
+homepage = "https://github.com/enviodev/hypersync-client-solana"
+readme = "../README.md"
+keywords = ["solana", "hypersync", "envio"]
+categories = ["api-bindings"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

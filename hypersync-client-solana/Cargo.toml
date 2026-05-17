@@ -2,7 +2,14 @@
 name = "hypersync-client-solana"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 description = "Rust client for Solana HyperSync"
+license = "MPL-2.0"
+repository = "https://github.com/enviodev/hypersync-client-solana"
+homepage = "https://github.com/enviodev/hypersync-client-solana"
+readme = "../README.md"
+keywords = ["solana", "hypersync", "envio", "blockchain", "indexing"]
+categories = ["api-bindings", "asynchronous"]
 
 [dependencies]
 anyhow = "1"
@@ -14,5 +21,5 @@ tokio = { version = "1", features = ["time", "sync", "rt"] }
 tracing = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
-hypersync-solana-net-types = { path = "../hypersync-solana-net-types" }
-hypersync-solana-schema = { path = "../hypersync-solana-schema" }
+hypersync-solana-net-types = { path = "../hypersync-solana-net-types", version = "0.1.0" }
+hypersync-solana-schema = { path = "../hypersync-solana-schema", version = "0.1.0" }
