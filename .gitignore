@@ -17,3 +17,6 @@
 
 # Generated parquet output
 **/data
+
+# Internal planning doc, kept local only
+PLAN.md

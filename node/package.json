@@ -1,0 +1,40 @@
+{
+  "name": "@envio-dev/hypersync-client-solana",
+  "version": "0.1.0",
+  "description": "Node.js client for Solana HyperSync by Envio",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/enviodev/hypersync-client-solana"
+  },
+  "napi": {
+    "binaryName": "hypersync-client-solana",
+    "targets": [
+      "aarch64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-apple-darwin"
+    ]
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "engines": {
+    "node": ">= 16"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "version": "napi version"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.5.0"
+  },
+  "packageManager": "yarn@3.8.7"
+}

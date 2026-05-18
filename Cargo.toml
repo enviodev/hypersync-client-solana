@@ -4,7 +4,11 @@ members = [
     "hypersync-client-solana",
     "hypersync-solana-net-types",
     "hypersync-solana-schema",
+    "node",
 ]
 
 [workspace.dependencies]
 arrow = "57"
+
+[profile.release]
+lto = true
