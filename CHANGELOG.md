@@ -7,12 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-05-18
+
+First crates.io release. All three Rust crates published at this version
+(`hypersync-solana-schema`, `hypersync-solana-net-types`, `hypersync-client-solana`).
+
 ### Added
 
-- Cargo workspace at the repo root covering all three crates.
+- Cargo workspace at the repo root covering all three Rust crates plus a
+  Node.js binding crate under `node/`.
 - MPL-2.0 LICENSE, README, CHANGELOG.
 - Per-crate metadata (description, license, repository, homepage, keywords,
   categories, readme).
+- napi-rs Node bindings under `node/` exposing `SolanaClient` with
+  `getHeight()` and `query()`.
 
 ### Fixed
 
