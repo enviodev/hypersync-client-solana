@@ -1,5 +1,7 @@
 pub mod arrow_reader;
 pub mod config;
+pub mod from_arrow;
+pub mod simple_types;
 pub mod stream;
 pub mod types;
 
@@ -11,6 +13,7 @@ use tokio::sync::mpsc;
 
 use config::{ClientConfig, StreamConfig};
 use hypersync_solana_net_types::query::SolanaQuery;
+use simple_types::SolanaResponse;
 use types::QueryResponse;
 
 /// Solana HyperSync client.
@@ -136,6 +139,28 @@ impl Client {
         stream::stream_arrow(self.clone(), query, config)
     }
 
+    /// Execute a single query and return typed Rust structs.
+    ///
+    /// Like [`Client::get_arrow`], but decodes the Arrow tables into the
+    /// `Vec<T>` shapes in [`crate::simple_types`].
+    pub async fn get(&self, query: &SolanaQuery) -> Result<SolanaResponse> {
+        let arrow = self.get_arrow(query).await?;
+        decode_response_tables(arrow)
+    }
+
+    /// Execute a query that may span many server responses, paginating
+    /// automatically, and return typed Rust structs.
+    ///
+    /// This is the typed counterpart of [`Client::collect_arrow`].
+    pub async fn collect(
+        self: &Arc<Self>,
+        query: SolanaQuery,
+        config: StreamConfig,
+    ) -> Result<SolanaResponse> {
+        let arrow = self.collect_arrow(query, config).await?;
+        decode_response_tables(arrow)
+    }
+
     async fn post_with_retry(&self, url: &str, query: &SolanaQuery) -> Result<Vec<u8>> {
         let cfg = &self.inner.config;
         let mut last_err = None;
@@ -201,4 +226,43 @@ impl Client {
 
         Err(last_err.unwrap_or_else(|| anyhow::anyhow!("request failed after retries")))
     }
+}
+
+fn decode_response_tables(arrow: QueryResponse) -> Result<SolanaResponse> {
+    let mut resp = SolanaResponse {
+        next_slot: arrow.next_slot,
+        response_bytes: arrow.response_bytes,
+        ..Default::default()
+    };
+    for (name, batch) in arrow.data.tables {
+        match name {
+            "blocks" => {
+                resp.blocks = from_arrow::blocks_from_arrow(&batch).context("decode blocks")?
+            }
+            "transactions" => {
+                resp.transactions =
+                    from_arrow::transactions_from_arrow(&batch).context("decode transactions")?
+            }
+            "instructions" => {
+                resp.instructions =
+                    from_arrow::instructions_from_arrow(&batch).context("decode instructions")?
+            }
+            "logs" => resp.logs = from_arrow::logs_from_arrow(&batch).context("decode logs")?,
+            "balances" => {
+                resp.balances =
+                    from_arrow::balances_from_arrow(&batch).context("decode balances")?
+            }
+            "token_balances" => {
+                resp.token_balances = from_arrow::token_balances_from_arrow(&batch)
+                    .context("decode token_balances")?
+            }
+            "rewards" => {
+                resp.rewards = from_arrow::rewards_from_arrow(&batch).context("decode rewards")?
+            }
+            other => {
+                tracing::debug!(table = other, "ignoring unknown table in response");
+            }
+        }
+    }
+    Ok(resp)
 }
