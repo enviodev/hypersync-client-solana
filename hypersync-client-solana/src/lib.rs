@@ -1,5 +1,6 @@
 pub mod arrow_reader;
 pub mod config;
+pub mod decode;
 pub mod from_arrow;
 pub mod simple_types;
 pub mod stream;
