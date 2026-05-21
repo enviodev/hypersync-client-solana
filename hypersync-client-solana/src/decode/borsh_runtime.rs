@@ -18,10 +18,7 @@ use serde_json::{Map, Value};
 
 /// Slice `N` bytes off the front of `*buf` (advancing the cursor) and return
 /// them as a fixed-size array. Caller's `from_le_bytes` consumes it.
-fn take_arr<const N: usize>(
-    buf: &mut &[u8],
-    what: &'static str,
-) -> Result<[u8; N], DecodeError> {
+fn take_arr<const N: usize>(buf: &mut &[u8], what: &'static str) -> Result<[u8; N], DecodeError> {
     if buf.len() < N {
         return Err(DecodeError::Underflow {
             what,
@@ -73,12 +70,22 @@ pub fn decode_field(
         },
 
         // Sub-64-bit integers go as JSON Number.
-        FieldType::U8  => Ok(Value::Number(take_arr::<1>(buf, "u8")?[0].into())),
-        FieldType::U16 => Ok(Value::Number(u16::from_le_bytes(take_arr(buf, "u16")?).into())),
-        FieldType::U32 => Ok(Value::Number(u32::from_le_bytes(take_arr(buf, "u32")?).into())),
-        FieldType::I8  => Ok(Value::Number(i8::from_le_bytes(take_arr(buf, "i8")?).into())),
-        FieldType::I16 => Ok(Value::Number(i16::from_le_bytes(take_arr(buf, "i16")?).into())),
-        FieldType::I32 => Ok(Value::Number(i32::from_le_bytes(take_arr(buf, "i32")?).into())),
+        FieldType::U8 => Ok(Value::Number(take_arr::<1>(buf, "u8")?[0].into())),
+        FieldType::U16 => Ok(Value::Number(
+            u16::from_le_bytes(take_arr(buf, "u16")?).into(),
+        )),
+        FieldType::U32 => Ok(Value::Number(
+            u32::from_le_bytes(take_arr(buf, "u32")?).into(),
+        )),
+        FieldType::I8 => Ok(Value::Number(
+            i8::from_le_bytes(take_arr(buf, "i8")?).into(),
+        )),
+        FieldType::I16 => Ok(Value::Number(
+            i16::from_le_bytes(take_arr(buf, "i16")?).into(),
+        )),
+        FieldType::I32 => Ok(Value::Number(
+            i32::from_le_bytes(take_arr(buf, "i32")?).into(),
+        )),
 
         // ≥64-bit integers stringify (decimal).
         FieldType::U64 => Ok(Value::String(
