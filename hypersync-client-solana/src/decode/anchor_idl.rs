@@ -43,7 +43,7 @@ pub enum AnchorParseError {
     #[error("unsupported type shape at {path}: {value}")]
     UnsupportedType { path: String, value: String },
 
-    #[error("type '{name}' missing 'kind' (expected 'struct' or 'enum')")]
+    #[error("type '{name}' missing 'kind' (expected 'struct', 'enum', or 'type')")]
     UnsupportedTypeKind { name: String },
 }
 
@@ -333,6 +333,18 @@ fn parse_type_def(name: &str, node: &Value) -> Result<FieldType, AnchorParseErro
                 .transpose()?
                 .unwrap_or_default();
             Ok(FieldType::Enum(variants))
+        }
+        // Type aliases (e.g. `pub type Foo = Pubkey`). Resolve the alias body
+        // inline so the parser doesn't have to add an indirection layer.
+        "type" => {
+            let alias = node
+                .get("alias")
+                .or_else(|| node.get("type"))
+                .ok_or_else(|| AnchorParseError::UnsupportedType {
+                    path: format!("types.{name}.alias"),
+                    value: node.to_string(),
+                })?;
+            parse_type(alias, &format!("types.{name}.alias"))
         }
         _ => Err(AnchorParseError::UnsupportedTypeKind {
             name: name.to_string(),

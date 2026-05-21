@@ -232,6 +232,47 @@ fn too_few_accounts_errors() {
 }
 
 #[test]
+fn modern_idl_type_alias_resolves() {
+    // Anchor's IDL spec includes a `kind: "type"` variant for type aliases
+    // (e.g. `pub type Lamports = u64`). Ensure the parser resolves the alias
+    // body transparently rather than rejecting the type entry.
+    let idl_with_alias = r#"{
+      "address": "AliasProgxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "metadata": { "name": "demo", "version": "0.1.0", "spec": "0.1.0" },
+      "instructions": [
+        {
+          "name": "noop",
+          "discriminator": [9, 9, 9, 9, 9, 9, 9, 9],
+          "accounts": [],
+          "args": [
+            { "name": "amount", "type": { "defined": { "name": "Lamports" } } }
+          ]
+        }
+      ],
+      "types": [
+        {
+          "name": "Lamports",
+          "type": { "kind": "type", "alias": "u64" }
+        }
+      ]
+    }"#;
+
+    let schema = schema_from_anchor_idl_json(idl_with_alias).expect("parse alias IDL");
+    let resolved = schema
+        .defined_types
+        .get("Lamports")
+        .expect("alias registered");
+    assert!(matches!(resolved, FieldType::U64), "got {:?}", resolved);
+
+    // Round-trip: u64 args serialize as decimal string per locked conventions.
+    let mut data: Vec<u8> = vec![9, 9, 9, 9, 9, 9, 9, 9];
+    data.extend_from_slice(&500u64.to_le_bytes());
+    let ix = instr_from(&schema.program_id, data, vec![]);
+    let decoded = decode_instruction(&schema, &ix).expect("decode alias");
+    assert_eq!(decoded.args, json!({ "amount": "500" }));
+}
+
+#[test]
 fn anchor_roundtrip_via_borsh_derive() {
     // Confirms our hand-written schema matches what borsh-derive emits.
     #[derive(BorshSerialize)]

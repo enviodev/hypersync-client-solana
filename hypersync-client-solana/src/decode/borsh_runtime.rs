@@ -148,7 +148,10 @@ pub fn decode_field(
 
         FieldType::Vec(inner) => {
             let len = read_u32(buf, "vec len")? as usize;
-            let mut out = Vec::with_capacity(len);
+            // `len` is attacker-controlled (up to 2^32-1). Don't preallocate
+            // from it directly; rely on Vec's growth strategy so a bogus
+            // length errors out via underflow before consuming much memory.
+            let mut out = Vec::new();
             for _ in 0..len {
                 out.push(decode_field(inner, defined, buf)?);
             }
