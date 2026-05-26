@@ -47,6 +47,7 @@ pub struct InstructionSelection {
     pub is_inner: Option<bool>,
     pub include_transaction: Option<bool>,
     pub include_logs: Option<bool>,
+    pub include_inner_instructions: Option<bool>,
 }
 
 /// Filter for selecting transactions. All non-empty fields are AND-ed.
@@ -145,6 +146,7 @@ impl From<InstructionSelection> for RsInstructionSelection {
             is_inner: s.is_inner,
             include_transaction: s.include_transaction.unwrap_or_default(),
             include_logs: s.include_logs.unwrap_or_default(),
+            include_inner_instructions: s.include_inner_instructions.unwrap_or_default(),
         }
     }
 }
