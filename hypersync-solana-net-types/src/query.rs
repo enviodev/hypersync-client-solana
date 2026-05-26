@@ -108,6 +108,11 @@ pub struct InstructionSelection {
     /// When true, also return logs associated with matched instructions.
     #[serde(default)]
     pub include_logs: bool,
+    /// When true, also return inner instructions (CPIs) belonging to the same
+    /// transactions as matched instructions. The client correlates inners to
+    /// their parent outer via `instruction_address` prefix matching.
+    #[serde(default)]
+    pub include_inner_instructions: bool,
 }
 
 impl InstructionSelection {
