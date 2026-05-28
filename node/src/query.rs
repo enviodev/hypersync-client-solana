@@ -252,6 +252,16 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             .map(SolanaFieldSelection::try_from)
             .transpose()?
             .unwrap_or_default();
+        // Validate the new balance limits fail-fast (like from_slot / to_slot)
+        // rather than silently clamping a negative caller bug to 0.
+        let max_num_balances = q
+            .max_num_balances
+            .map(|v| usize::try_from(v).context("max_num_balances must be non-negative"))
+            .transpose()?;
+        let max_num_token_balances = q
+            .max_num_token_balances
+            .map(|v| usize::try_from(v).context("max_num_token_balances must be non-negative"))
+            .transpose()?;
 
         Ok(RsSolanaQuery {
             from_slot,
@@ -294,8 +304,8 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             max_num_transactions: q.max_num_transactions.map(|v| v.max(0) as usize),
             max_num_instructions: q.max_num_instructions.map(|v| v.max(0) as usize),
             max_num_logs: q.max_num_logs.map(|v| v.max(0) as usize),
-            max_num_balances: q.max_num_balances.map(|v| v.max(0) as usize),
-            max_num_token_balances: q.max_num_token_balances.map(|v| v.max(0) as usize),
+            max_num_balances,
+            max_num_token_balances,
         })
     }
 }
