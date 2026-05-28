@@ -1,4 +1,5 @@
 use crate::*;
+use arrow::datatypes::DataType;
 
 #[test]
 fn test_all_schemas_have_slot_column() {
@@ -44,6 +45,23 @@ fn test_instruction_schema_has_account_positions() {
             name
         );
     }
+}
+
+#[test]
+fn test_token_balance_has_program_ids() {
+    let schema = token_balance();
+    // pre/post program id distinguish SPL Token from Token-2022.
+    assert!(schema.field_with_name("pre_program_id").is_ok());
+    assert!(schema.field_with_name("post_program_id").is_ok());
+    // Amounts are decimal strings so Token-2022 amounts above u64::MAX survive.
+    assert_eq!(
+        schema.field_with_name("pre_amount").unwrap().data_type(),
+        &DataType::Utf8
+    );
+    assert_eq!(
+        schema.field_with_name("post_amount").unwrap().data_type(),
+        &DataType::Utf8
+    );
 }
 
 #[test]

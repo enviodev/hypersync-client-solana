@@ -90,8 +90,14 @@ pub struct Balance {
 
 /// SPL token balance change for one account in one transaction.
 ///
-/// `pre_amount` and `post_amount` are kept as strings to preserve the full u64
-/// precision the server sends without surprising the user with parsing failures.
+/// `pre_amount` and `post_amount` are kept as decimal strings to preserve the
+/// full precision the server sends (Token-2022 amounts can exceed u64::MAX)
+/// without surprising the user with parsing failures.
+///
+/// `pre_program_id` / `post_program_id` identify the owning token program
+/// (classic SPL Token vs Token-2022); they may be absent for older data that
+/// predates program-id capture. They are pre/post because an account can be
+/// reinitialized mid-transaction.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenBalance {
     pub slot: u64,
@@ -101,6 +107,8 @@ pub struct TokenBalance {
     pub owner: Option<String>,
     pub pre_amount: Option<String>,
     pub post_amount: Option<String>,
+    pub pre_program_id: Option<String>,
+    pub post_program_id: Option<String>,
 }
 
 /// Validator / staking reward.

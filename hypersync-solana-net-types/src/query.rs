@@ -39,6 +39,36 @@ pub struct SolanaQuery {
     /// Maximum number of logs to return before stopping.
     #[serde(default)]
     pub max_num_logs: Option<usize>,
+
+    /// Native SOL balance selections. A balance row is included if it matches
+    /// at least one selection (empty selection `{}` matches all). Balances are
+    /// keyed to a transaction via `transaction_index`.
+    ///
+    /// Unlike `include_all_blocks`, requesting balances this way does NOT force
+    /// every block in the range to be returned. See also the per-selection
+    /// `include_balances` join flag on instruction/transaction/log selections,
+    /// which scopes balances to only the transactions a filter matched.
+    #[serde(default)]
+    pub balances: Vec<BalanceSelection>,
+    /// SPL token balance selections. Same semantics as `balances`.
+    #[serde(default)]
+    pub token_balances: Vec<TokenBalanceSelection>,
+    /// When true, return native SOL `balances` for the matched result set
+    /// without requiring `include_all_blocks`. With no other filters this
+    /// returns all balances in range (SQD parity); combined with a per-selection
+    /// scoped join it returns only the balances for matched transactions.
+    #[serde(default)]
+    pub include_balances: bool,
+    /// When true, return SPL `token_balances` for the matched result set without
+    /// requiring `include_all_blocks`. See `include_balances`.
+    #[serde(default)]
+    pub include_token_balances: bool,
+    /// Maximum number of balance rows to return before stopping.
+    #[serde(default)]
+    pub max_num_balances: Option<usize>,
+    /// Maximum number of token balance rows to return before stopping.
+    #[serde(default)]
+    pub max_num_token_balances: Option<usize>,
 }
 
 /// Filter for selecting instructions.
@@ -113,6 +143,16 @@ pub struct InstructionSelection {
     /// their parent outer via `instruction_address` prefix matching.
     #[serde(default)]
     pub include_inner_instructions: bool,
+    /// When true, also return native SOL `balances` for the transactions of
+    /// matched instructions (scoped join on `(slot, transaction_index)`). This
+    /// returns only the balance changes for the txs this selection matched, with
+    /// no `include_all_blocks` requirement.
+    #[serde(default)]
+    pub include_balances: bool,
+    /// When true, also return SPL `token_balances` for the transactions of
+    /// matched instructions (scoped join). See `include_balances`.
+    #[serde(default)]
+    pub include_token_balances: bool,
 }
 
 impl InstructionSelection {
@@ -148,6 +188,15 @@ pub struct TransactionSelection {
     /// When true, also return all instructions belonging to matched transactions.
     #[serde(default)]
     pub include_instructions: bool,
+    /// When true, also return native SOL `balances` for matched transactions
+    /// (scoped join on `(slot, transaction_index)`), with no `include_all_blocks`
+    /// requirement.
+    #[serde(default)]
+    pub include_balances: bool,
+    /// When true, also return SPL `token_balances` for matched transactions
+    /// (scoped join). See `include_balances`.
+    #[serde(default)]
+    pub include_token_balances: bool,
 }
 
 impl TransactionSelection {
@@ -174,10 +223,68 @@ pub struct LogSelection {
     /// When true, also return instructions associated with matched logs.
     #[serde(default)]
     pub include_instruction: bool,
+    /// When true, also return native SOL `balances` for the transactions of
+    /// matched logs (scoped join on `(slot, transaction_index)`), with no
+    /// `include_all_blocks` requirement.
+    #[serde(default)]
+    pub include_balances: bool,
+    /// When true, also return SPL `token_balances` for the transactions of
+    /// matched logs (scoped join). See `include_balances`.
+    #[serde(default)]
+    pub include_token_balances: bool,
 }
 
 impl LogSelection {
     pub fn is_empty(&self) -> bool {
         self.program_id.is_empty() && self.kind.is_empty()
+    }
+}
+
+/// Filter for selecting native SOL balance changes.
+///
+/// All non-empty fields are AND-ed: a balance must match at least one value in
+/// every non-empty field. Empty fields are ignored (match-all). An empty
+/// selection `{}` returns every balance row in the queried range.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BalanceSelection {
+    /// Match balances whose account is one of these pubkeys.
+    #[serde(default)]
+    pub account: Vec<String>,
+}
+
+impl BalanceSelection {
+    pub fn is_empty(&self) -> bool {
+        self.account.is_empty()
+    }
+}
+
+/// Filter for selecting SPL token balance changes.
+///
+/// All non-empty fields are AND-ed: a token balance must match at least one
+/// value in every non-empty field. Empty fields are ignored (match-all). An
+/// empty selection `{}` returns every token balance row in the queried range.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TokenBalanceSelection {
+    /// Match by token account address (the ATA / raw token account).
+    #[serde(default)]
+    pub account: Vec<String>,
+    /// Match by mint address.
+    #[serde(default)]
+    pub mint: Vec<String>,
+    /// Match by owner (wallet) address.
+    #[serde(default)]
+    pub owner: Vec<String>,
+    /// Match by token program id (e.g. classic SPL Token vs Token-2022).
+    /// Matches the post program id, falling back to the pre program id.
+    #[serde(default)]
+    pub program_id: Vec<String>,
+}
+
+impl TokenBalanceSelection {
+    pub fn is_empty(&self) -> bool {
+        self.account.is_empty()
+            && self.mint.is_empty()
+            && self.owner.is_empty()
+            && self.program_id.is_empty()
     }
 }

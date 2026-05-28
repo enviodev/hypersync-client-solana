@@ -117,8 +117,14 @@ pub fn token_balance() -> SchemaRef {
         Field::new("account", DataType::Utf8, true),
         Field::new("mint", DataType::Utf8, true),
         Field::new("owner", DataType::Utf8, true),
+        // Amounts are decimal strings (not u64) so Token-2022 balances that
+        // exceed u64::MAX in base units round-trip without truncation.
         Field::new("pre_amount", DataType::Utf8, true),
         Field::new("post_amount", DataType::Utf8, true),
+        // Owning token program (classic SPL Token vs Token-2022). Pre/post are
+        // separate because an account can be reinitialized mid-transaction.
+        Field::new("pre_program_id", DataType::Utf8, true),
+        Field::new("post_program_id", DataType::Utf8, true),
     ]))
 }
 
