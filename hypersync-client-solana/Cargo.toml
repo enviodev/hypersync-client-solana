@@ -23,7 +23,7 @@ sha2 = "0.10"
 thiserror = "1"
 tokio = { version = "1", features = ["time", "sync", "rt"] }
 tracing = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 
 hypersync-solana-net-types = { path = "../hypersync-solana-net-types", version = "0.0.4" }
 hypersync-solana-schema = { path = "../hypersync-solana-schema", version = "0.0.4" }
