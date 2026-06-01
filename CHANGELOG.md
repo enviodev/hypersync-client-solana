@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-05-29
+
+Solana balances "data gap" fix (HOS-1298): decouple balances/token_balances
+from `include_all_blocks` and add a transaction-scoped balance join, so a
+value-flow / DEX indexer can get balance deltas for the transactions its
+instruction/transaction/log filter already matched without pulling every block
+in the range. All additions are optional `#[serde(default)]` fields, so existing
+queries and responses are unchanged (non-breaking).
+
+### Added
+
+- `net-types`: top-level `SolanaQuery.include_balances` /
+  `include_token_balances` flags that return balances for the matched result set
+  without `include_all_blocks` (with no other filters: all balances in range, SQD
+  parity).
+- `net-types`: per-selection `include_balances` / `include_token_balances` join
+  flags on `InstructionSelection`, `TransactionSelection`, and `LogSelection`.
+  When set, the server returns only the balance rows whose
+  `(slot, transaction_index)` is in the matched set (strict improvement over
+  SQD, which returns all-block balances).
+- `net-types`: `BalanceSelection { account }` and
+  `TokenBalanceSelection { account, mint, owner, program_id }` request-filter
+  objects, plus `SolanaQuery.balances` / `token_balances`,
+  `max_num_balances` / `max_num_token_balances`.
+- `schema`: `token_balance` gains `pre_program_id` / `post_program_id` columns
+  (classic SPL Token vs Token-2022). Amounts were already decimal strings, so
+  Token-2022 amounts above `u64::MAX` already round-trip.
+- `field_selection`: `TokenBalanceField::PreProgramId` / `PostProgramId`.
+- client: `TokenBalance` gains `pre_program_id` / `post_program_id`; the Arrow
+  decoder reads them as optional columns (older servers still decode).
+- node bindings updated to expose all of the above.
+
 ## [0.0.3-rc.1] - 2026-05-21
 
 Borsh instruction decoder (PLAN.md Phase 7b). Targeted at hyperindex Stage 7a.

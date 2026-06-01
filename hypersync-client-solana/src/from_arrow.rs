@@ -357,6 +357,9 @@ pub fn token_balances_from_arrow(batch: &RecordBatch) -> Result<Vec<TokenBalance
     let owner = opt_col::<StringArray>(batch, "owner")?;
     let pre = opt_col::<StringArray>(batch, "pre_amount")?;
     let post = opt_col::<StringArray>(batch, "post_amount")?;
+    // Optional so responses from servers predating program-id capture still decode.
+    let pre_program_id = opt_col::<StringArray>(batch, "pre_program_id")?;
+    let post_program_id = opt_col::<StringArray>(batch, "post_program_id")?;
 
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
@@ -368,6 +371,8 @@ pub fn token_balances_from_arrow(batch: &RecordBatch) -> Result<Vec<TokenBalance
             owner: owner.and_then(|a| get_str(a, i)),
             pre_amount: pre.and_then(|a| get_str(a, i)),
             post_amount: post.and_then(|a| get_str(a, i)),
+            pre_program_id: pre_program_id.and_then(|a| get_str(a, i)),
+            post_program_id: post_program_id.and_then(|a| get_str(a, i)),
         });
     }
     Ok(out)
