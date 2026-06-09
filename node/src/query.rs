@@ -7,7 +7,7 @@ use hypersync_solana_net_types::field_selection::{
 };
 use hypersync_solana_net_types::query::{
     BalanceSelection as RsBalanceSelection, InstructionSelection as RsInstructionSelection,
-    LogSelection as RsLogSelection, SolanaQuery as RsSolanaQuery,
+    JoinMode as RsJoinMode, LogSelection as RsLogSelection, SolanaQuery as RsSolanaQuery,
     TokenBalanceSelection as RsTokenBalanceSelection,
     TransactionSelection as RsTransactionSelection,
 };
@@ -126,6 +126,9 @@ pub struct SolanaQuery {
     /// Deprecated alias for `field_selection`, kept for backwards
     /// compatibility. If both are set, `field_selection` wins.
     pub fields: Option<FieldSelection>,
+    /// How related rows are joined onto matches. One of `"JoinNothing"`,
+    /// `"Linear"`, `"Default"`, `"JoinAll"`. Omitted means `"Default"`.
+    pub join_mode: Option<String>,
     pub max_num_blocks: Option<i64>,
     pub max_num_transactions: Option<i64>,
     pub max_num_instructions: Option<i64>,
@@ -143,6 +146,20 @@ where
             T::from_str(&s).map_err(|e| anyhow::anyhow!("invalid {} field '{}': {}", name, s, e))
         })
         .collect()
+}
+
+fn parse_join_mode(s: Option<String>) -> Result<RsJoinMode> {
+    Ok(match s.as_deref() {
+        None | Some("Default") => RsJoinMode::Default,
+        Some("JoinNothing") => RsJoinMode::JoinNothing,
+        Some("Linear") => RsJoinMode::Linear,
+        Some("JoinAll") => RsJoinMode::JoinAll,
+        Some(other) => {
+            return Err(anyhow::anyhow!(
+                "invalid join_mode '{other}' (expected JoinNothing, Linear, Default, or JoinAll)"
+            ))
+        }
+    })
 }
 
 impl TryFrom<FieldSelection> for SolanaFieldSelection {
@@ -306,6 +323,7 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             include_balances: q.include_balances.unwrap_or_default(),
             include_token_balances: q.include_token_balances.unwrap_or_default(),
             field_selection,
+            join_mode: parse_join_mode(q.join_mode)?,
             max_num_blocks: q.max_num_blocks.map(|v| v.max(0) as usize),
             max_num_transactions: q.max_num_transactions.map(|v| v.max(0) as usize),
             max_num_instructions: q.max_num_instructions.map(|v| v.max(0) as usize),
