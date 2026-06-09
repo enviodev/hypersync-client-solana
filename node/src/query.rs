@@ -247,7 +247,7 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             .to_slot
             .map(|v| u64::try_from(v).context("to_slot must be non-negative"))
             .transpose()?;
-        let fields = q
+        let field_selection = q
             .fields
             .map(SolanaFieldSelection::try_from)
             .transpose()?
@@ -299,7 +299,7 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             include_all_blocks: q.include_all_blocks.unwrap_or_default(),
             include_balances: q.include_balances.unwrap_or_default(),
             include_token_balances: q.include_token_balances.unwrap_or_default(),
-            fields,
+            field_selection,
             max_num_blocks: q.max_num_blocks.map(|v| v.max(0) as usize),
             max_num_transactions: q.max_num_transactions.map(|v| v.max(0) as usize),
             max_num_instructions: q.max_num_instructions.map(|v| v.max(0) as usize),

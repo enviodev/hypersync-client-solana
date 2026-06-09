@@ -22,8 +22,12 @@ pub struct SolanaQuery {
     #[serde(default)]
     pub include_all_blocks: bool,
     /// Per-table field selection (which columns to return).
-    #[serde(default)]
-    pub fields: crate::field_selection::SolanaFieldSelection,
+    ///
+    /// Renamed from `fields` for consistency with the EVM and Fuel HyperSync
+    /// query APIs. The legacy `fields` key is still accepted on input via a
+    /// serde alias, so existing queries keep working.
+    #[serde(default, alias = "fields")]
+    pub field_selection: crate::field_selection::SolanaFieldSelection,
     /// Maximum number of instructions to return before stopping.
     #[serde(default)]
     pub max_num_instructions: Option<usize>,
@@ -286,5 +290,41 @@ impl TokenBalanceSelection {
             && self.mint.is_empty()
             && self.owner.is_empty()
             && self.program_id.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::field_selection::BlockField;
+
+    #[test]
+    fn field_selection_canonical_key_deserializes() {
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"field_selection":{"block":["slot"]}}"#)
+                .unwrap();
+        assert_eq!(q.field_selection.block, vec![BlockField::Slot]);
+    }
+
+    #[test]
+    fn field_selection_accepts_legacy_fields_alias() {
+        // The pre-rename `fields` key must keep working for existing queries.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"fields":{"block":["slot"]}}"#).unwrap();
+        assert_eq!(q.field_selection.block, vec![BlockField::Slot]);
+    }
+
+    #[test]
+    fn field_selection_serializes_with_new_key() {
+        let q = SolanaQuery {
+            field_selection: crate::field_selection::SolanaFieldSelection {
+                block: vec![BlockField::Slot],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&q).unwrap();
+        assert!(json.contains("field_selection"));
+        assert!(!json.contains("\"fields\""));
     }
 }

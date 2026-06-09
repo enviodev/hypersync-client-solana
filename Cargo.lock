@@ -821,6 +821,7 @@ version = "0.0.5"
 dependencies = [
  "schemars",
  "serde",
+ "serde_json",
  "strum",
  "strum_macros",
 ]
