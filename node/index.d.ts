@@ -106,8 +106,6 @@ export interface SolanaQuery {
   fieldSelection?: FieldSelection
   /** @deprecated Use `fieldSelection` instead. */
   fields?: FieldSelection
-  /** Join mode: "JoinNothing" | "Linear" | "Default" | "JoinAll". Omitted = "Default". */
-  joinMode?: string
   maxNumBlocks?: number
   maxNumTransactions?: number
   maxNumInstructions?: number
