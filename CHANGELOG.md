@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6-rc.3] - 2026-06-09
+
+Removes the `join_mode` API added in rc.2. The team decided against
+configurable join modes: the server will always apply a single default join
+(related rows are returned based on `field_selection`). This is additive to
+remove since nothing depends on rc.2's `join_mode` yet.
+
+### Removed
+
+- `net-types`: `JoinMode` enum and `SolanaQuery.join_mode`.
+- `node`: `SolanaQuery.joinMode`.
+
+### Notes
+
+- The per-selection `include_*` flags remain accepted (and still deserialize)
+  but are documented as ignored no-ops; the server always applies the default
+  join. A future version may reject them.
+- `field_selection` and the legacy `fields` alias are unchanged.
+
 ## [0.0.6-rc.2] - 2026-06-09
 
 Adds the `join_mode` query API. Forward-compatible: queries that omit it get
