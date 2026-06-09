@@ -32,7 +32,7 @@ const client = new SolanaClient({
         includeTransaction: true,
       },
     ],
-    fields: {
+    fieldSelection: {
       instruction: ["slot", "transaction_index", "program_id", "data"],
       transaction: ["slot", "transaction_index", "fee_payer"],
     },

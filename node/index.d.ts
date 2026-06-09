@@ -102,6 +102,9 @@ export interface SolanaQuery {
   transactions?: Array<TransactionSelection>
   logs?: Array<LogSelection>
   includeAllBlocks?: boolean
+  /** Per-table field selection (which columns to return). */
+  fieldSelection?: FieldSelection
+  /** @deprecated Use `fieldSelection` instead. */
   fields?: FieldSelection
   maxNumBlocks?: number
   maxNumTransactions?: number

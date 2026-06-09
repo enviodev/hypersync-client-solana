@@ -121,6 +121,10 @@ pub struct SolanaQuery {
     /// Return SPL token balances for the matched result set without requiring
     /// `include_all_blocks`.
     pub include_token_balances: Option<bool>,
+    /// Per-table field selection (which columns to return).
+    pub field_selection: Option<FieldSelection>,
+    /// Deprecated alias for `field_selection`, kept for backwards
+    /// compatibility. If both are set, `field_selection` wins.
     pub fields: Option<FieldSelection>,
     pub max_num_blocks: Option<i64>,
     pub max_num_transactions: Option<i64>,
@@ -247,8 +251,10 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             .to_slot
             .map(|v| u64::try_from(v).context("to_slot must be non-negative"))
             .transpose()?;
+        // Prefer `field_selection`; fall back to the deprecated `fields` alias.
         let field_selection = q
-            .fields
+            .field_selection
+            .or(q.fields)
             .map(SolanaFieldSelection::try_from)
             .transpose()?
             .unwrap_or_default();
