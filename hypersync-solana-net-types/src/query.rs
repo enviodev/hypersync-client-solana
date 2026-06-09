@@ -28,6 +28,10 @@ pub struct SolanaQuery {
     /// serde alias, so existing queries keep working.
     #[serde(default, alias = "fields")]
     pub field_selection: crate::field_selection::SolanaFieldSelection,
+    /// How related rows are attached to filter matches. Defaults to `Default`.
+    /// All modes operate on the shared `(slot, transaction_index)` key.
+    #[serde(default)]
+    pub join_mode: JoinMode,
     /// Maximum number of instructions to return before stopping.
     #[serde(default)]
     pub max_num_instructions: Option<usize>,
@@ -73,6 +77,32 @@ pub struct SolanaQuery {
     /// Maximum number of token balance rows to return before stopping.
     #[serde(default)]
     pub max_num_token_balances: Option<usize>,
+}
+
+/// Controls how related rows are attached to filter matches. Each mode is a
+/// strict superset of the previous: `JoinNothing` ⊆ `Linear` ⊆ `Default` ⊆
+/// `JoinAll`. All modes operate on the shared `(slot, transaction_index)` key.
+///
+/// Variant names match the EVM HyperSync `JoinMode` (with `Linear` added,
+/// since Solana's tables are peers under a transaction rather than a single
+/// linear cascade).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JoinMode {
+    /// Return only rows that matched a filter; no cross-table joins.
+    JoinNothing,
+    /// Also return each match's ancestors: its transaction and block. Mirrors
+    /// the default join on EVM HyperSync (hydrate upward only).
+    Linear,
+    /// `Linear`, plus: a directly-matched transaction fans down to its
+    /// instructions / logs / balances, and a table that has fields selected but
+    /// no filter of its own is returned for every matched transaction. The
+    /// recommended default; covers the common indexing patterns in one query.
+    #[default]
+    Default,
+    /// Return every row of every selected table that shares a matched
+    /// `(slot, transaction_index)` key (full closure, including sibling
+    /// instructions and inner CPIs).
+    JoinAll,
 }
 
 /// Filter for selecting instructions.
@@ -136,6 +166,10 @@ pub struct InstructionSelection {
     #[serde(default)]
     pub is_inner: Option<bool>,
 
+    // Transition: the `include_*` join flags below are accepted but currently
+    // ignored by the server, which derives joins from `join_mode` (default
+    // `Default`). They are kept so existing queries don't fail. A future version
+    // may reject them once clients have migrated to `join_mode`.
     /// When true, also return the parent transaction for each matched instruction.
     #[serde(default)]
     pub include_transaction: bool,
@@ -189,6 +223,10 @@ pub struct TransactionSelection {
     /// If set, only match transactions with this success status.
     #[serde(default)]
     pub success: Option<bool>,
+    // Transition: the `include_*` join flags below are accepted but currently
+    // ignored by the server, which derives joins from `join_mode` (default
+    // `Default`). They are kept so existing queries don't fail. A future version
+    // may reject them once clients have migrated to `join_mode`.
     /// When true, also return all instructions belonging to matched transactions.
     #[serde(default)]
     pub include_instructions: bool,
@@ -221,6 +259,10 @@ pub struct LogSelection {
     /// Match logs whose kind is one of these values (e.g. "log", "data").
     #[serde(default)]
     pub kind: Vec<String>,
+    // Transition: the `include_*` join flags below are accepted but currently
+    // ignored by the server, which derives joins from `join_mode` (default
+    // `Default`). They are kept so existing queries don't fail. A future version
+    // may reject them once clients have migrated to `join_mode`.
     /// When true, also return the parent transaction for each matched log.
     #[serde(default)]
     pub include_transaction: bool,
@@ -326,5 +368,46 @@ mod tests {
         let json = serde_json::to_string(&q).unwrap();
         assert!(json.contains("field_selection"));
         assert!(!json.contains("\"fields\""));
+    }
+
+    #[test]
+    fn join_mode_defaults_to_default_when_absent() {
+        let q: SolanaQuery = serde_json::from_str(r#"{"from_slot":0}"#).unwrap();
+        assert_eq!(q.join_mode, JoinMode::Default);
+    }
+
+    #[test]
+    fn join_mode_deserializes_all_variants() {
+        for (s, want) in [
+            ("JoinNothing", JoinMode::JoinNothing),
+            ("Linear", JoinMode::Linear),
+            ("Default", JoinMode::Default),
+            ("JoinAll", JoinMode::JoinAll),
+        ] {
+            let json = format!(r#"{{"from_slot":0,"join_mode":"{s}"}}"#);
+            let q: SolanaQuery = serde_json::from_str(&json).unwrap();
+            assert_eq!(q.join_mode, want, "variant {s}");
+        }
+    }
+
+    #[test]
+    fn join_mode_serializes_with_pascal_case_matching_evm() {
+        let q = SolanaQuery {
+            join_mode: JoinMode::JoinAll,
+            ..Default::default()
+        };
+        assert!(serde_json::to_string(&q).unwrap().contains("\"JoinAll\""));
+    }
+
+    #[test]
+    fn include_flags_still_accepted_as_no_ops() {
+        // During the transition the per-selection include_* flags must still
+        // deserialize without error even though the server ignores them.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
+        )
+        .unwrap();
+        assert!(q.instructions[0].include_transaction);
+        assert_eq!(q.join_mode, JoinMode::Default);
     }
 }
