@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6-rc.1] - 2026-06-09
+
+Release candidate for the `fields` -> `field_selection` rename. Backwards
+compatible: the legacy key keeps working on both the wire and the node client.
+
+### Changed
+
+- `net-types`: rename `SolanaQuery.fields` to `field_selection`, matching the EVM
+  and Fuel HyperSync query APIs. A serde `alias = "fields"` keeps deserializing
+  the legacy key, so existing JSON queries are unaffected; serialization now
+  emits `field_selection`.
+- `node`: add `fieldSelection` to `SolanaQuery`; `fields` is retained as a
+  deprecated alias (if both are set, `fieldSelection` wins).
+
 ## [0.0.4] - 2026-05-29
 
 Solana balances "data gap" fix (HOS-1298): decouple balances/token_balances
