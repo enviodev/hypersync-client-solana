@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-06-09
+
+First official release of the query-API consistency change. Consolidates the
+0.0.6-rc.1..rc.3 candidates. Backwards compatible.
+
+### Changed
+
+- `net-types` / `node`: `SolanaQuery.fields` is renamed to `field_selection`
+  (matching the EVM and Fuel HyperSync query APIs). The legacy `fields` key is
+  still accepted on input (serde alias on the wire; deprecated `fields` on the
+  node client), so existing queries keep working.
+
+### Notes
+
+- There is no configurable join mode (the `join_mode` API explored in rc.2 was
+  removed in rc.3). The server applies a single default join.
+- The per-selection `include_*` join flags are retained for backwards
+  compatibility and are still honored by the server today; they are slated to
+  become no-ops once the server moves to the single default join, and a future
+  version may reject them.
+
 ## [0.0.6-rc.3] - 2026-06-09
 
 Removes the `join_mode` API added in rc.2. The team decided against

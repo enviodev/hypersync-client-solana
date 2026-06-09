@@ -136,10 +136,10 @@ pub struct InstructionSelection {
     #[serde(default)]
     pub is_inner: Option<bool>,
 
-    // Transition: these `include_*` join flags are accepted but ignored by the
-    // server, which always applies the default join (related rows are returned
-    // based on `field_selection`). They are kept so existing queries don't fail;
-    // a future version may reject them.
+    // Backwards compatibility: these `include_*` join flags are still honored by
+    // the server today. They are slated to become no-ops once the server moves
+    // to a single default join (related rows driven by `field_selection`); a
+    // future version may reject them.
     /// When true, also return the parent transaction for each matched instruction.
     #[serde(default)]
     pub include_transaction: bool,
@@ -193,10 +193,10 @@ pub struct TransactionSelection {
     /// If set, only match transactions with this success status.
     #[serde(default)]
     pub success: Option<bool>,
-    // Transition: these `include_*` join flags are accepted but ignored by the
-    // server, which always applies the default join (related rows are returned
-    // based on `field_selection`). They are kept so existing queries don't fail;
-    // a future version may reject them.
+    // Backwards compatibility: these `include_*` join flags are still honored by
+    // the server today. They are slated to become no-ops once the server moves
+    // to a single default join (related rows driven by `field_selection`); a
+    // future version may reject them.
     /// When true, also return all instructions belonging to matched transactions.
     #[serde(default)]
     pub include_instructions: bool,
@@ -229,10 +229,10 @@ pub struct LogSelection {
     /// Match logs whose kind is one of these values (e.g. "log", "data").
     #[serde(default)]
     pub kind: Vec<String>,
-    // Transition: these `include_*` join flags are accepted but ignored by the
-    // server, which always applies the default join (related rows are returned
-    // based on `field_selection`). They are kept so existing queries don't fail;
-    // a future version may reject them.
+    // Backwards compatibility: these `include_*` join flags are still honored by
+    // the server today. They are slated to become no-ops once the server moves
+    // to a single default join (related rows driven by `field_selection`); a
+    // future version may reject them.
     /// When true, also return the parent transaction for each matched log.
     #[serde(default)]
     pub include_transaction: bool,
