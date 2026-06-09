@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6-rc.2] - 2026-06-09
+
+Adds the `join_mode` query API. Forward-compatible: queries that omit it get
+`Default`, and the legacy per-selection `include_*` join flags still
+deserialize (the server will treat them as no-ops once it adopts join modes).
+
+### Added
+
+- `net-types`: `JoinMode` enum (`JoinNothing` / `Linear` / `Default` / `JoinAll`,
+  variant names matching EVM HyperSync, with `Linear` added) and a
+  `SolanaQuery.join_mode` field (default `Default`).
+
+### Changed
+
+- `net-types`: the per-selection `include_*` flags are documented as a
+  transition shim - accepted on input but slated to become server-side no-ops
+  driven by `join_mode`; a future version may reject them.
+
 ## [0.0.6-rc.1] - 2026-06-09
 
 Release candidate for the `fields` -> `field_selection` rename. Backwards
