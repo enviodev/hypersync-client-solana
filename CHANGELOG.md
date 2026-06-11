@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-06-11
+
+### Removed
+
+- `net-types` / `node`: the per-selection `include_*` join flags on
+  `InstructionSelection` (`include_transaction`, `include_logs`,
+  `include_inner_instructions`, `include_balances`, `include_token_balances`),
+  `TransactionSelection` (`include_instructions`, `include_balances`,
+  `include_token_balances`), and `LogSelection` (`include_transaction`,
+  `include_instruction`, `include_balances`, `include_token_balances`). The
+  server no longer handles them — it always applies the single default join
+  driven by `field_selection`. Queries that still carry these keys keep
+  deserializing (the unknown keys are ignored). The top-level
+  `SolanaQuery.include_balances` / `include_token_balances` result-set flags and
+  `include_all_blocks` are unaffected.
+- `net-types` / `node`: the legacy `fields` alias for `field_selection`. Only
+  `field_selection` is accepted now, matching the EVM and Fuel HyperSync query
+  APIs.
+
+### Added
+
+- `client` / `node`: `Client::new_with_agent` (Rust) and
+  `SolanaClient.createWithAgent` (Node) to construct a client with a custom user
+  agent, mirroring the EVM and Fuel HyperSync clients.
+
 ## [0.0.6] - 2026-06-09
 
 First official release of the query-API consistency change. Consolidates the

@@ -34,6 +34,19 @@ impl SolanaClient {
         })
     }
 
+    /// Create a new client with the given config and a custom user agent.
+    ///
+    /// Mirrors the EVM and Fuel HyperSync clients' `createWithAgent`.
+    #[napi(factory)]
+    pub fn create_with_agent(cfg: ClientConfig, user_agent: String) -> napi::Result<SolanaClient> {
+        let inner = RsClient::new_with_agent(cfg.into(), user_agent)
+            .context("build Solana HyperSync client")
+            .map_err(map_err)?;
+        Ok(SolanaClient {
+            inner: Arc::new(inner),
+        })
+    }
+
     /// Get the current chain height (latest slot).
     #[napi]
     pub async fn get_height(&self) -> napi::Result<i64> {

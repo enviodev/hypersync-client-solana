@@ -23,10 +23,9 @@ pub struct SolanaQuery {
     pub include_all_blocks: bool,
     /// Per-table field selection (which columns to return).
     ///
-    /// Renamed from `fields` for consistency with the EVM and Fuel HyperSync
-    /// query APIs. The legacy `fields` key is still accepted on input via a
-    /// serde alias, so existing queries keep working.
-    #[serde(default, alias = "fields")]
+    /// Named `field_selection` for consistency with the EVM and Fuel HyperSync
+    /// query APIs.
+    #[serde(default)]
     pub field_selection: crate::field_selection::SolanaFieldSelection,
     /// Maximum number of instructions to return before stopping.
     #[serde(default)]
@@ -49,9 +48,7 @@ pub struct SolanaQuery {
     /// keyed to a transaction via `transaction_index`.
     ///
     /// Unlike `include_all_blocks`, requesting balances this way does NOT force
-    /// every block in the range to be returned. See also the per-selection
-    /// `include_balances` join flag on instruction/transaction/log selections,
-    /// which scopes balances to only the transactions a filter matched.
+    /// every block in the range to be returned.
     #[serde(default)]
     pub balances: Vec<BalanceSelection>,
     /// SPL token balance selections. Same semantics as `balances`.
@@ -135,32 +132,6 @@ pub struct InstructionSelection {
     /// - Some(false): only outer instructions
     #[serde(default)]
     pub is_inner: Option<bool>,
-
-    // Backwards compatibility: these `include_*` join flags are still honored by
-    // the server today. They are slated to become no-ops once the server moves
-    // to a single default join (related rows driven by `field_selection`); a
-    // future version may reject them.
-    /// When true, also return the parent transaction for each matched instruction.
-    #[serde(default)]
-    pub include_transaction: bool,
-    /// When true, also return logs associated with matched instructions.
-    #[serde(default)]
-    pub include_logs: bool,
-    /// When true, also return inner instructions (CPIs) belonging to the same
-    /// transactions as matched instructions. The client correlates inners to
-    /// their parent outer via `instruction_address` prefix matching.
-    #[serde(default)]
-    pub include_inner_instructions: bool,
-    /// When true, also return native SOL `balances` for the transactions of
-    /// matched instructions (scoped join on `(slot, transaction_index)`). This
-    /// returns only the balance changes for the txs this selection matched, with
-    /// no `include_all_blocks` requirement.
-    #[serde(default)]
-    pub include_balances: bool,
-    /// When true, also return SPL `token_balances` for the transactions of
-    /// matched instructions (scoped join). See `include_balances`.
-    #[serde(default)]
-    pub include_token_balances: bool,
 }
 
 impl InstructionSelection {
@@ -193,22 +164,6 @@ pub struct TransactionSelection {
     /// If set, only match transactions with this success status.
     #[serde(default)]
     pub success: Option<bool>,
-    // Backwards compatibility: these `include_*` join flags are still honored by
-    // the server today. They are slated to become no-ops once the server moves
-    // to a single default join (related rows driven by `field_selection`); a
-    // future version may reject them.
-    /// When true, also return all instructions belonging to matched transactions.
-    #[serde(default)]
-    pub include_instructions: bool,
-    /// When true, also return native SOL `balances` for matched transactions
-    /// (scoped join on `(slot, transaction_index)`), with no `include_all_blocks`
-    /// requirement.
-    #[serde(default)]
-    pub include_balances: bool,
-    /// When true, also return SPL `token_balances` for matched transactions
-    /// (scoped join). See `include_balances`.
-    #[serde(default)]
-    pub include_token_balances: bool,
 }
 
 impl TransactionSelection {
@@ -229,25 +184,6 @@ pub struct LogSelection {
     /// Match logs whose kind is one of these values (e.g. "log", "data").
     #[serde(default)]
     pub kind: Vec<String>,
-    // Backwards compatibility: these `include_*` join flags are still honored by
-    // the server today. They are slated to become no-ops once the server moves
-    // to a single default join (related rows driven by `field_selection`); a
-    // future version may reject them.
-    /// When true, also return the parent transaction for each matched log.
-    #[serde(default)]
-    pub include_transaction: bool,
-    /// When true, also return instructions associated with matched logs.
-    #[serde(default)]
-    pub include_instruction: bool,
-    /// When true, also return native SOL `balances` for the transactions of
-    /// matched logs (scoped join on `(slot, transaction_index)`), with no
-    /// `include_all_blocks` requirement.
-    #[serde(default)]
-    pub include_balances: bool,
-    /// When true, also return SPL `token_balances` for the transactions of
-    /// matched logs (scoped join). See `include_balances`.
-    #[serde(default)]
-    pub include_token_balances: bool,
 }
 
 impl LogSelection {
@@ -319,14 +255,6 @@ mod tests {
     }
 
     #[test]
-    fn field_selection_accepts_legacy_fields_alias() {
-        // The pre-rename `fields` key must keep working for existing queries.
-        let q: SolanaQuery =
-            serde_json::from_str(r#"{"from_slot":0,"fields":{"block":["slot"]}}"#).unwrap();
-        assert_eq!(q.field_selection.block, vec![BlockField::Slot]);
-    }
-
-    #[test]
     fn field_selection_serializes_with_new_key() {
         let q = SolanaQuery {
             field_selection: crate::field_selection::SolanaFieldSelection {
@@ -341,13 +269,14 @@ mod tests {
     }
 
     #[test]
-    fn include_flags_still_accepted_as_no_ops() {
-        // The per-selection include_* flags must still deserialize without error
-        // even though the server ignores them (it always applies the default join).
+    fn legacy_include_flags_are_ignored() {
+        // The per-selection `include_*` join flags have been removed. Queries that
+        // still carry them must keep deserializing (the unknown keys are ignored)
+        // since the server no longer handles them.
         let q: SolanaQuery = serde_json::from_str(
             r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
         )
         .unwrap();
-        assert!(q.instructions[0].include_transaction);
+        assert_eq!(q.instructions[0].program_id, vec!["p".to_string()]);
     }
 }

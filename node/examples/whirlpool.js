@@ -17,7 +17,6 @@ async function main() {
     instructions: [
       {
         programId: [WHIRLPOOL],
-        includeTransaction: true,
       },
     ],
     fieldSelection: {
