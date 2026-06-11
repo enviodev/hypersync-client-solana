@@ -34,9 +34,22 @@ struct ClientInner {
 impl Client {
     /// Create a new client with the given configuration.
     pub fn new(config: ClientConfig) -> Result<Self> {
+        // hscs stands for hypersync client solana.
+        let user_agent = format!("hscs/{}", env!("CARGO_PKG_VERSION"));
+        Self::new_with_agent(config, user_agent)
+    }
+
+    /// Create a new client with the given configuration and a custom user agent.
+    ///
+    /// This mirrors the EVM and Fuel HyperSync clients and is intended for use by
+    /// language bindings (Node.js) and downstream tools that want to identify
+    /// themselves to the server.
+    pub fn new_with_agent(config: ClientConfig, user_agent: impl Into<String>) -> Result<Self> {
         anyhow::ensure!(!config.url.is_empty(), "url must not be empty");
 
-        let mut builder = reqwest::Client::builder().timeout(config.http_req_timeout);
+        let mut builder = reqwest::Client::builder()
+            .timeout(config.http_req_timeout)
+            .user_agent(user_agent.into());
 
         if let Some(ref token) = config.bearer_token {
             use reqwest::header;

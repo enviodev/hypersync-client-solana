@@ -43,8 +43,6 @@ async fn decode_recent_metaplex_instructions() {
         to_slot: Some(height),
         instructions: vec![InstructionSelection {
             program_id: vec![TOKEN_METADATA_PROGRAM.to_string()],
-            include_transaction: false,
-            include_logs: false,
             ..Default::default()
         }],
         max_num_instructions: Some(200),

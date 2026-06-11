@@ -52,8 +52,6 @@ async fn collect_returns_token_metadata_instructions() {
         to_slot: Some(to),
         instructions: vec![InstructionSelection {
             program_id: vec![TOKEN_METADATA_PROGRAM.to_string()],
-            include_transaction: true,
-            include_logs: false,
             ..Default::default()
         }],
         // Cap the response so we don't pull megabytes on every run.

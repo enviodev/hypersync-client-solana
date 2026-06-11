@@ -29,7 +29,6 @@ const client = new SolanaClient({
     instructions: [
       {
         programId: ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
-        includeTransaction: true,
       },
     ],
     fieldSelection: {

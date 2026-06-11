@@ -4,6 +4,12 @@
 export declare class SolanaClient {
   /** Create a new client with the given config. */
   constructor(cfg: ClientConfig)
+  /**
+   * Create a new client with the given config and a custom user agent.
+   *
+   * Mirrors the EVM and Fuel HyperSync clients' `createWithAgent`.
+   */
+  static createWithAgent(cfg: ClientConfig, userAgent: string): SolanaClient
   /** Get the current chain height (latest slot). */
   getHeight(): Promise<number>
   /**
@@ -64,16 +70,12 @@ export interface InstructionSelection {
   a9?: Array<string>
   /** None: match both outer and inner. true: inner only. false: outer only. */
   isInner?: boolean
-  includeTransaction?: boolean
-  includeLogs?: boolean
 }
 
 /** Filter for selecting logs. All non-empty fields are AND-ed. */
 export interface LogSelection {
   programId?: Array<string>
   kind?: Array<string>
-  includeTransaction?: boolean
-  includeInstruction?: boolean
 }
 
 /** Response from a Solana HyperSync query. */
@@ -104,8 +106,6 @@ export interface SolanaQuery {
   includeAllBlocks?: boolean
   /** Per-table field selection (which columns to return). */
   fieldSelection?: FieldSelection
-  /** @deprecated Use `fieldSelection` instead. */
-  fields?: FieldSelection
   maxNumBlocks?: number
   maxNumTransactions?: number
   maxNumInstructions?: number
@@ -116,5 +116,4 @@ export interface SolanaQuery {
 export interface TransactionSelection {
   feePayer?: Array<string>
   success?: boolean
-  includeInstructions?: boolean
 }

@@ -47,13 +47,6 @@ pub struct InstructionSelection {
     pub a9: Option<Vec<String>>,
     /// None: match both outer and inner. true: inner only. false: outer only.
     pub is_inner: Option<bool>,
-    pub include_transaction: Option<bool>,
-    pub include_logs: Option<bool>,
-    pub include_inner_instructions: Option<bool>,
-    /// Also return native SOL balances for matched txs (scoped join).
-    pub include_balances: Option<bool>,
-    /// Also return SPL token balances for matched txs (scoped join).
-    pub include_token_balances: Option<bool>,
 }
 
 /// Filter for selecting transactions. All non-empty fields are AND-ed.
@@ -62,11 +55,6 @@ pub struct InstructionSelection {
 pub struct TransactionSelection {
     pub fee_payer: Option<Vec<String>>,
     pub success: Option<bool>,
-    pub include_instructions: Option<bool>,
-    /// Also return native SOL balances for matched txs (scoped join).
-    pub include_balances: Option<bool>,
-    /// Also return SPL token balances for matched txs (scoped join).
-    pub include_token_balances: Option<bool>,
 }
 
 /// Filter for selecting logs. All non-empty fields are AND-ed.
@@ -75,12 +63,6 @@ pub struct TransactionSelection {
 pub struct LogSelection {
     pub program_id: Option<Vec<String>>,
     pub kind: Option<Vec<String>>,
-    pub include_transaction: Option<bool>,
-    pub include_instruction: Option<bool>,
-    /// Also return native SOL balances for matched txs (scoped join).
-    pub include_balances: Option<bool>,
-    /// Also return SPL token balances for matched txs (scoped join).
-    pub include_token_balances: Option<bool>,
 }
 
 /// Filter for selecting native SOL balance changes. All non-empty fields are AND-ed.
@@ -123,9 +105,6 @@ pub struct SolanaQuery {
     pub include_token_balances: Option<bool>,
     /// Per-table field selection (which columns to return).
     pub field_selection: Option<FieldSelection>,
-    /// Deprecated alias for `field_selection`, kept for backwards
-    /// compatibility. If both are set, `field_selection` wins.
-    pub fields: Option<FieldSelection>,
     pub max_num_blocks: Option<i64>,
     pub max_num_transactions: Option<i64>,
     pub max_num_instructions: Option<i64>,
@@ -189,11 +168,6 @@ impl From<InstructionSelection> for RsInstructionSelection {
             a8: s.a8.unwrap_or_default(),
             a9: s.a9.unwrap_or_default(),
             is_inner: s.is_inner,
-            include_transaction: s.include_transaction.unwrap_or_default(),
-            include_logs: s.include_logs.unwrap_or_default(),
-            include_inner_instructions: s.include_inner_instructions.unwrap_or_default(),
-            include_balances: s.include_balances.unwrap_or_default(),
-            include_token_balances: s.include_token_balances.unwrap_or_default(),
         }
     }
 }
@@ -203,9 +177,6 @@ impl From<TransactionSelection> for RsTransactionSelection {
         RsTransactionSelection {
             fee_payer: s.fee_payer.unwrap_or_default(),
             success: s.success,
-            include_instructions: s.include_instructions.unwrap_or_default(),
-            include_balances: s.include_balances.unwrap_or_default(),
-            include_token_balances: s.include_token_balances.unwrap_or_default(),
         }
     }
 }
@@ -215,10 +186,6 @@ impl From<LogSelection> for RsLogSelection {
         RsLogSelection {
             program_id: s.program_id.unwrap_or_default(),
             kind: s.kind.unwrap_or_default(),
-            include_transaction: s.include_transaction.unwrap_or_default(),
-            include_instruction: s.include_instruction.unwrap_or_default(),
-            include_balances: s.include_balances.unwrap_or_default(),
-            include_token_balances: s.include_token_balances.unwrap_or_default(),
         }
     }
 }
@@ -251,10 +218,8 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             .to_slot
             .map(|v| u64::try_from(v).context("to_slot must be non-negative"))
             .transpose()?;
-        // Prefer `field_selection`; fall back to the deprecated `fields` alias.
         let field_selection = q
             .field_selection
-            .or(q.fields)
             .map(SolanaFieldSelection::try_from)
             .transpose()?
             .unwrap_or_default();
