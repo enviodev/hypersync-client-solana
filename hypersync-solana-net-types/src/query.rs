@@ -161,6 +161,13 @@ pub struct TransactionSelection {
     /// Match transactions whose fee_payer is one of these pubkeys.
     #[serde(default)]
     pub fee_payer: Vec<String>,
+    /// Match transactions by transaction id (`signatures[0]`, base58). This is the
+    /// canonical Solana transaction signature and acts as the transaction's id.
+    #[serde(default)]
+    pub transaction_id: Vec<String>,
+    /// Match transactions by their `transaction_index` (position within the block).
+    #[serde(default)]
+    pub transaction_index: Vec<u64>,
     /// If set, only match transactions with this success status.
     #[serde(default)]
     pub success: Option<bool>,
@@ -168,7 +175,10 @@ pub struct TransactionSelection {
 
 impl TransactionSelection {
     pub fn is_empty(&self) -> bool {
-        self.fee_payer.is_empty() && self.success.is_none()
+        self.fee_payer.is_empty()
+            && self.transaction_id.is_empty()
+            && self.transaction_index.is_empty()
+            && self.success.is_none()
     }
 }
 
@@ -266,6 +276,31 @@ mod tests {
         let json = serde_json::to_string(&q).unwrap();
         assert!(json.contains("field_selection"));
         assert!(!json.contains("\"fields\""));
+    }
+
+    #[test]
+    fn transaction_id_and_index_filters_deserialize() {
+        // Dmitry Wave 2 #1/#2: filter transactions by their signature id and by index.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"transactions":[{"transaction_id":["5xY..."],"transaction_index":[3,7]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(q.transactions[0].transaction_id, vec!["5xY...".to_string()]);
+        assert_eq!(q.transactions[0].transaction_index, vec![3, 7]);
+        assert!(!q.transactions[0].is_empty());
+    }
+
+    #[test]
+    fn transaction_id_field_selectable() {
+        use crate::field_selection::TransactionField;
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"field_selection":{"transaction":["transaction_id"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.field_selection.transaction,
+            vec![TransactionField::TransactionId]
+        );
     }
 
     #[test]

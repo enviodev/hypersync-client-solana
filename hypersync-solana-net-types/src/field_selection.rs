@@ -39,6 +39,8 @@ pub enum BlockField {
 pub enum TransactionField {
     Slot,
     TransactionIndex,
+    /// `signatures[0]` (base58) — the canonical Solana transaction id.
+    TransactionId,
     Signatures,
     FeePayer,
     Success,
