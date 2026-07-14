@@ -82,9 +82,11 @@ pub struct SolanaQuery {
 /// in every non-empty field. Empty fields are ignored (match-all).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstructionSelection {
-    /// Match instructions whose program_id is one of these pubkeys.
-    #[serde(default)]
-    pub program_id: Vec<String>,
+    /// Match instruction calls whose executing account (the invoked program) is
+    /// one of these pubkeys. Renamed from `program_id`; the legacy key is still
+    /// accepted on input via a serde alias.
+    #[serde(default, alias = "program_id")]
+    pub executing_account: Vec<String>,
 
     /// Match first 1 byte of instruction data (hex-encoded, e.g. "e8").
     #[serde(default)]
@@ -140,7 +142,7 @@ pub struct InstructionSelection {
 
 impl InstructionSelection {
     pub fn is_empty(&self) -> bool {
-        self.program_id.is_empty()
+        self.executing_account.is_empty()
             && self.d1.is_empty()
             && self.d2.is_empty()
             && self.d4.is_empty()
@@ -316,15 +318,19 @@ mod tests {
             r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
         )
         .unwrap();
-        assert_eq!(q.instruction_calls[0].program_id, vec!["p".to_string()]);
+        assert_eq!(
+            q.instruction_calls[0].executing_account,
+            vec!["p".to_string()]
+        );
     }
 
     #[test]
     fn instruction_calls_key_and_legacy_alias() {
-        // New canonical key.
-        let q: SolanaQuery =
-            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"program_id":["p"]}]}"#)
-                .unwrap();
+        // New canonical key + new executing_account filter name.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["p"]}]}"#,
+        )
+        .unwrap();
         assert_eq!(q.instruction_calls.len(), 1);
         // Legacy `instructions` key still deserializes into the same field.
         let q: SolanaQuery =
@@ -355,6 +361,63 @@ mod tests {
         assert_eq!(
             q.field_selection.instruction_call,
             vec![InstructionField::Data]
+        );
+    }
+
+    #[test]
+    fn executing_account_filter_new_and_legacy() {
+        // New filter name.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["prog"]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.instruction_calls[0].executing_account,
+            vec!["prog".to_string()]
+        );
+        // Legacy `program_id` still maps to executing_account.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"instruction_calls":[{"program_id":["prog"]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.instruction_calls[0].executing_account,
+            vec!["prog".to_string()]
+        );
+        // Serialization emits the new name.
+        let json = serde_json::to_string(&q).unwrap();
+        assert!(json.contains("executing_account"));
+        assert!(!json.contains("program_id"));
+    }
+
+    #[test]
+    fn instruction_field_renames_and_legacy_aliases() {
+        use crate::field_selection::InstructionField;
+        // New column names, plus the two new index columns.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"field_selection":{"instruction_call":["executing_account","account_arguments","executing_account_index","account_index_arguments"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.field_selection.instruction_call,
+            vec![
+                InstructionField::ExecutingAccount,
+                InstructionField::AccountArguments,
+                InstructionField::ExecutingAccountIndex,
+                InstructionField::AccountIndexArguments,
+            ]
+        );
+        // Legacy column names still deserialize into the renamed variants.
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"field_selection":{"instruction":["program_id","accounts"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.field_selection.instruction_call,
+            vec![
+                InstructionField::ExecutingAccount,
+                InstructionField::AccountArguments,
+            ]
         );
     }
 }

@@ -62,8 +62,18 @@ pub enum InstructionField {
     Slot,
     TransactionIndex,
     InstructionAddress,
-    ProgramId,
-    Accounts,
+    /// The invoked program's account. Renamed from `program_id`; the legacy
+    /// wire name is still accepted on input via a serde alias.
+    #[serde(alias = "program_id")]
+    ExecutingAccount,
+    /// Index of the executing account within the transaction's account keys.
+    ExecutingAccountIndex,
+    /// The instruction's account arguments (pubkeys). Renamed from `accounts`;
+    /// the legacy wire name is still accepted on input via a serde alias.
+    #[serde(alias = "accounts")]
+    AccountArguments,
+    /// Indexes of the account arguments within the transaction's account keys.
+    AccountIndexArguments,
     Data,
     D1,
     D2,
