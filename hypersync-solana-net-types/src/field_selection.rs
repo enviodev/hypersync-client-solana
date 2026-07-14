@@ -9,8 +9,9 @@ pub struct SolanaFieldSelection {
     pub block: Vec<BlockField>,
     #[serde(default)]
     pub transaction: Vec<TransactionField>,
-    #[serde(default)]
-    pub instruction: Vec<InstructionField>,
+    /// Renamed from `instruction`; legacy key accepted via serde alias.
+    #[serde(default, alias = "instruction")]
+    pub instruction_call: Vec<InstructionField>,
     #[serde(default)]
     pub log: Vec<LogField>,
     #[serde(default)]

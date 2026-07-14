@@ -10,10 +10,14 @@ pub struct SolanaQuery {
     /// Exclusive end slot. If omitted, query runs to the current height.
     #[serde(default)]
     pub to_slot: Option<u64>,
-    /// Instruction-level selections. A block is included if any instruction
+    /// Instruction-call selections. A block is included if any instruction call
     /// in any of its transactions matches at least one selection.
-    #[serde(default)]
-    pub instructions: Vec<InstructionSelection>,
+    ///
+    /// Renamed from `instructions`: one row is one runtime program invocation
+    /// (an execution trace, including CPIs), the Solana counterpart to EVM traces.
+    /// The legacy `instructions` key is still accepted on input via a serde alias.
+    #[serde(default, alias = "instructions")]
+    pub instruction_calls: Vec<InstructionSelection>,
     /// Transaction-level selections. A block is included if any transaction
     /// matches at least one selection.
     #[serde(default)]
@@ -312,6 +316,45 @@ mod tests {
             r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
         )
         .unwrap();
-        assert_eq!(q.instructions[0].program_id, vec!["p".to_string()]);
+        assert_eq!(q.instruction_calls[0].program_id, vec!["p".to_string()]);
+    }
+
+    #[test]
+    fn instruction_calls_key_and_legacy_alias() {
+        // New canonical key.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"program_id":["p"]}]}"#)
+                .unwrap();
+        assert_eq!(q.instruction_calls.len(), 1);
+        // Legacy `instructions` key still deserializes into the same field.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"instructions":[{"program_id":["p"]}]}"#)
+                .unwrap();
+        assert_eq!(q.instruction_calls.len(), 1);
+        // Serialization emits the new key only.
+        let json = serde_json::to_string(&q).unwrap();
+        assert!(json.contains("instruction_calls"));
+        assert!(!json.contains("\"instructions\""));
+    }
+
+    #[test]
+    fn field_selection_instruction_call_key_and_legacy_alias() {
+        use crate::field_selection::InstructionField;
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"field_selection":{"instruction_call":["data"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.field_selection.instruction_call,
+            vec![InstructionField::Data]
+        );
+        // Legacy `instruction` key still works.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"field_selection":{"instruction":["data"]}}"#)
+                .unwrap();
+        assert_eq!(
+            q.field_selection.instruction_call,
+            vec![InstructionField::Data]
+        );
     }
 }
