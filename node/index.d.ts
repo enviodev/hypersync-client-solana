@@ -85,6 +85,11 @@ export interface InstructionSelection {
   a9?: Array<string>
   /** None: match both outer and inner. true: inner only. false: outer only. */
   isInner?: boolean
+  /**
+   * Commit status of the parent transaction. None: match both committed and
+   * failed. true: successful transactions only. false: failed only.
+   */
+  isCommitted?: boolean
 }
 
 /** Filter for selecting logs. All non-empty fields are AND-ed. */
