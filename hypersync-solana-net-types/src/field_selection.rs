@@ -9,8 +9,9 @@ pub struct SolanaFieldSelection {
     pub block: Vec<BlockField>,
     #[serde(default)]
     pub transaction: Vec<TransactionField>,
-    #[serde(default)]
-    pub instruction: Vec<InstructionField>,
+    /// Renamed from `instruction`; legacy key accepted via serde alias.
+    #[serde(default, alias = "instruction")]
+    pub instruction_call: Vec<InstructionField>,
     #[serde(default)]
     pub log: Vec<LogField>,
     #[serde(default)]
@@ -39,6 +40,8 @@ pub enum BlockField {
 pub enum TransactionField {
     Slot,
     TransactionIndex,
+    /// `signatures[0]` (base58) — the canonical Solana transaction id.
+    TransactionId,
     Signatures,
     FeePayer,
     Success,
@@ -59,8 +62,18 @@ pub enum InstructionField {
     Slot,
     TransactionIndex,
     InstructionAddress,
-    ProgramId,
-    Accounts,
+    /// The invoked program's account. Renamed from `program_id`; the legacy
+    /// wire name is still accepted on input via a serde alias.
+    #[serde(alias = "program_id")]
+    ExecutingAccount,
+    /// Index of the executing account within the transaction's account keys.
+    ExecutingAccountIndex,
+    /// The instruction's account arguments (pubkeys). Renamed from `accounts`;
+    /// the legacy wire name is still accepted on input via a serde alias.
+    #[serde(alias = "accounts")]
+    AccountArguments,
+    /// Indexes of the account arguments within the transaction's account keys.
+    AccountIndexArguments,
     Data,
     D1,
     D2,
