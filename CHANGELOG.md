@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-07-21
+
+Solana query-layer Wave 2. Every rename keeps the legacy key working via a
+serde alias (Rust) or a deprecated fallback field (node), so existing queries
+and JS callers are unaffected.
+
+### Added
+
+- `net-types` / `node`: `TransactionSelection.transaction_id` (base58
+  `signatures[0]`, the canonical Solana transaction signature) and
+  `transaction_index` filter arrays, plus `TransactionField::TransactionId` so
+  the signature id can be selected.
+- `net-types`: `InstructionField::ExecutingAccountIndex` and
+  `AccountIndexArguments` columns.
+
+### Changed
+
+- `net-types` / `node`: `SolanaQuery.instructions` renamed to
+  `instruction_calls`, and `SolanaFieldSelection.instruction` to
+  `instruction_call`. One row is one runtime program invocation (an execution
+  trace, including CPIs), the Solana counterpart to EVM traces.
+- `net-types` / `node`: `InstructionSelection.program_id` renamed to
+  `executing_account`, `InstructionField::ProgramId` to `ExecutingAccount`, and
+  `InstructionField::Accounts` to `AccountArguments`.
+- `node`: on every renamed key the new name wins when both are supplied; the
+  old name is marked `@deprecated` and still honored when the new one is
+  absent.
+
+### Fixed
+
+- `node`: the napi bindings and the two client integration tests had not been
+  updated for the renames, so `cargo check --workspace --all-targets` failed.
+  Regenerating `index.d.ts` also restored `BalanceSelection`,
+  `TokenBalanceSelection`, `includeBalances` / `includeTokenBalances` and the
+  balance row caps, which had drifted out of sync with the Rust types.
+- `node`: `transaction_index` is `u64` on the wire but napi only carries `i64`,
+  so the conversion now rejects negative values instead of wrapping.
+
 ## [0.0.7] - 2026-06-11
 
 ### Removed
