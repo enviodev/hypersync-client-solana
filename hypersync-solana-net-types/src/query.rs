@@ -138,6 +138,16 @@ pub struct InstructionSelection {
     /// - Some(false): only outer instructions
     #[serde(default)]
     pub is_inner: Option<bool>,
+
+    /// Filter on the commit status of the parent transaction:
+    /// - None / absent: match instructions of both committed and failed txs
+    /// - Some(true): only instructions of successful transactions
+    /// - Some(false): only instructions of failed transactions
+    ///
+    /// Failed transactions still land on chain and their instructions are
+    /// served, so consumers that count effects must set this to `Some(true)`.
+    #[serde(default)]
+    pub is_committed: Option<bool>,
 }
 
 impl InstructionSelection {
@@ -158,6 +168,7 @@ impl InstructionSelection {
             && self.a8.is_empty()
             && self.a9.is_empty()
             && self.is_inner.is_none()
+            && self.is_committed.is_none()
     }
 }
 
@@ -322,6 +333,42 @@ mod tests {
             q.instruction_calls[0].executing_account,
             vec!["p".to_string()]
         );
+    }
+
+    #[test]
+    fn is_committed_filter_deserializes() {
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["p"],"is_committed":true}]}"#,
+        )
+        .unwrap();
+        assert_eq!(q.instruction_calls[0].is_committed, Some(true));
+
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"is_committed":false}]}"#)
+                .unwrap();
+        assert_eq!(q.instruction_calls[0].is_committed, Some(false));
+    }
+
+    #[test]
+    fn is_committed_absent_is_none() {
+        // Absent must stay tri-state None (match both) so pre-existing queries
+        // keep their current behavior.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"is_inner":false}]}"#)
+                .unwrap();
+        assert_eq!(q.instruction_calls[0].is_committed, None);
+    }
+
+    #[test]
+    fn is_committed_alone_is_not_an_empty_selection() {
+        // The server treats an empty selection as match-all and short-circuits
+        // the row filter, so a selection carrying only `is_committed` must not
+        // report empty or it would return every instruction instead of none.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"is_committed":false}]}"#)
+                .unwrap();
+        assert!(!q.instruction_calls[0].is_empty());
+        assert!(InstructionSelection::default().is_empty());
     }
 
     #[test]

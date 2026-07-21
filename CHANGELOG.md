@@ -21,6 +21,20 @@ and JS callers are unaffected.
   the signature id can be selected.
 - `net-types`: `InstructionField::ExecutingAccountIndex` and
   `AccountIndexArguments` columns.
+- `net-types` / `node`: `InstructionSelection.is_committed` (`isCommitted` in
+  JS), an optional tri-state filter
+  on the commit status of the parent transaction. `None` / absent matches both
+  committed and failed transactions (existing behavior), `Some(true)` matches
+  only instructions of successful transactions, `Some(false)` only those of
+  failed transactions. Mirrors the existing `is_inner` filter, and complements
+  the already-selectable `InstructionField::IsCommitted` response field.
+
+  Failed Solana transactions still land on chain and their instructions are
+  served, so consumers that count effects (token transfers, swaps) over-count
+  without this filter. Requires a server that understands the new key: older
+  servers ignore it and return instructions of failed transactions regardless,
+  so clients that need the guarantee should also filter on the response
+  `is_committed` field.
 
 ### Changed
 

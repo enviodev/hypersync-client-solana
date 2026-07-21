@@ -53,6 +53,9 @@ pub struct InstructionSelection {
     pub a9: Option<Vec<String>>,
     /// None: match both outer and inner. true: inner only. false: outer only.
     pub is_inner: Option<bool>,
+    /// Commit status of the parent transaction. None: match both committed and
+    /// failed. true: successful transactions only. false: failed only.
+    pub is_committed: Option<bool>,
 }
 
 /// Filter for selecting transactions. All non-empty fields are AND-ed.
@@ -181,6 +184,7 @@ impl From<InstructionSelection> for RsInstructionSelection {
             a8: s.a8.unwrap_or_default(),
             a9: s.a9.unwrap_or_default(),
             is_inner: s.is_inner,
+            is_committed: s.is_committed,
         }
     }
 }
