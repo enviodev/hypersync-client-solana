@@ -50,8 +50,8 @@ async fn collect_returns_token_metadata_instructions() {
     let q = SolanaQuery {
         from_slot: from,
         to_slot: Some(to),
-        instructions: vec![InstructionSelection {
-            program_id: vec![TOKEN_METADATA_PROGRAM.to_string()],
+        instruction_calls: vec![InstructionSelection {
+            executing_account: vec![TOKEN_METADATA_PROGRAM.to_string()],
             ..Default::default()
         }],
         // Cap the response so we don't pull megabytes on every run.

@@ -19,6 +19,9 @@ use hypersync_solana_net_types::query::{
 pub struct FieldSelection {
     pub block: Option<Vec<String>>,
     pub transaction: Option<Vec<String>>,
+    pub instruction_call: Option<Vec<String>>,
+    /// @deprecated renamed to `instructionCall`; still honored when
+    /// `instructionCall` is absent.
     pub instruction: Option<Vec<String>>,
     pub log: Option<Vec<String>>,
     pub balance: Option<Vec<String>>,
@@ -30,6 +33,9 @@ pub struct FieldSelection {
 #[napi(object)]
 #[derive(Default, Clone)]
 pub struct InstructionSelection {
+    pub executing_account: Option<Vec<String>>,
+    /// @deprecated renamed to `executingAccount`; still honored when
+    /// `executingAccount` is absent.
     pub program_id: Option<Vec<String>>,
     pub d1: Option<Vec<String>>,
     pub d2: Option<Vec<String>>,
@@ -54,6 +60,10 @@ pub struct InstructionSelection {
 #[derive(Default, Clone)]
 pub struct TransactionSelection {
     pub fee_payer: Option<Vec<String>>,
+    /// Base58 `signatures[0]`, the canonical Solana transaction signature.
+    pub transaction_id: Option<Vec<String>>,
+    /// Position of the transaction within its block.
+    pub transaction_index: Option<Vec<i64>>,
     pub success: Option<bool>,
 }
 
@@ -91,6 +101,9 @@ pub struct SolanaQuery {
     pub from_slot: i64,
     /// Exclusive end slot. If omitted, queries run to the current height.
     pub to_slot: Option<i64>,
+    pub instruction_calls: Option<Vec<InstructionSelection>>,
+    /// @deprecated renamed to `instructionCalls`; still honored when
+    /// `instructionCalls` is absent.
     pub instructions: Option<Vec<InstructionSelection>>,
     pub transactions: Option<Vec<TransactionSelection>>,
     pub logs: Option<Vec<LogSelection>>,
@@ -134,9 +147,9 @@ impl TryFrom<FieldSelection> for SolanaFieldSelection {
                 "transaction",
                 f.transaction.unwrap_or_default(),
             )?,
-            instruction: parse_enum_list::<InstructionField>(
-                "instruction",
-                f.instruction.unwrap_or_default(),
+            instruction_call: parse_enum_list::<InstructionField>(
+                "instruction_call",
+                f.instruction_call.or(f.instruction).unwrap_or_default(),
             )?,
             log: parse_enum_list::<LogField>("log", f.log.unwrap_or_default())?,
             balance: parse_enum_list::<BalanceField>("balance", f.balance.unwrap_or_default())?,
@@ -152,7 +165,7 @@ impl TryFrom<FieldSelection> for SolanaFieldSelection {
 impl From<InstructionSelection> for RsInstructionSelection {
     fn from(s: InstructionSelection) -> Self {
         RsInstructionSelection {
-            program_id: s.program_id.unwrap_or_default(),
+            executing_account: s.executing_account.or(s.program_id).unwrap_or_default(),
             d1: s.d1.unwrap_or_default(),
             d2: s.d2.unwrap_or_default(),
             d4: s.d4.unwrap_or_default(),
@@ -172,12 +185,21 @@ impl From<InstructionSelection> for RsInstructionSelection {
     }
 }
 
-impl From<TransactionSelection> for RsTransactionSelection {
-    fn from(s: TransactionSelection) -> Self {
-        RsTransactionSelection {
+impl TryFrom<TransactionSelection> for RsTransactionSelection {
+    type Error = anyhow::Error;
+
+    fn try_from(s: TransactionSelection) -> Result<Self> {
+        Ok(RsTransactionSelection {
             fee_payer: s.fee_payer.unwrap_or_default(),
+            transaction_id: s.transaction_id.unwrap_or_default(),
+            transaction_index: s
+                .transaction_index
+                .unwrap_or_default()
+                .into_iter()
+                .map(|v| u64::try_from(v).context("transaction_index must be non-negative"))
+                .collect::<Result<Vec<_>>>()?,
             success: s.success,
-        }
+        })
     }
 }
 
@@ -237,8 +259,9 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
         Ok(RsSolanaQuery {
             from_slot,
             to_slot,
-            instructions: q
-                .instructions
+            instruction_calls: q
+                .instruction_calls
+                .or(q.instructions)
                 .unwrap_or_default()
                 .into_iter()
                 .map(Into::into)
@@ -247,8 +270,8 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
                 .transactions
                 .unwrap_or_default()
                 .into_iter()
-                .map(Into::into)
-                .collect(),
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>>>()?,
             logs: q
                 .logs
                 .unwrap_or_default()

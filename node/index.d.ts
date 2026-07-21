@@ -21,6 +21,11 @@ export declare class SolanaClient {
   query(query: SolanaQuery): Promise<QueryResponse>
 }
 
+/** Filter for selecting native SOL balance changes. All non-empty fields are AND-ed. */
+export interface BalanceSelection {
+  account?: Array<string>
+}
+
 /** Configuration for the Solana HyperSync client. */
 export interface ClientConfig {
   /** Base URL of the HyperSync server (e.g. "https://solana.hypersync.xyz"). */
@@ -44,6 +49,11 @@ export interface ClientConfig {
 export interface FieldSelection {
   block?: Array<string>
   transaction?: Array<string>
+  instructionCall?: Array<string>
+  /**
+   * @deprecated renamed to `instructionCall`; still honored when
+   * `instructionCall` is absent.
+   */
   instruction?: Array<string>
   log?: Array<string>
   balance?: Array<string>
@@ -53,6 +63,11 @@ export interface FieldSelection {
 
 /** Filter for selecting instructions. All non-empty fields are AND-ed. */
 export interface InstructionSelection {
+  executingAccount?: Array<string>
+  /**
+   * @deprecated renamed to `executingAccount`; still honored when
+   * `executingAccount` is absent.
+   */
   programId?: Array<string>
   d1?: Array<string>
   d2?: Array<string>
@@ -100,20 +115,51 @@ export interface SolanaQuery {
   fromSlot: number
   /** Exclusive end slot. If omitted, queries run to the current height. */
   toSlot?: number
+  instructionCalls?: Array<InstructionSelection>
+  /**
+   * @deprecated renamed to `instructionCalls`; still honored when
+   * `instructionCalls` is absent.
+   */
   instructions?: Array<InstructionSelection>
   transactions?: Array<TransactionSelection>
   logs?: Array<LogSelection>
+  balances?: Array<BalanceSelection>
+  tokenBalances?: Array<TokenBalanceSelection>
   includeAllBlocks?: boolean
+  /**
+   * Return native SOL balances for the matched result set without requiring
+   * `include_all_blocks`.
+   */
+  includeBalances?: boolean
+  /**
+   * Return SPL token balances for the matched result set without requiring
+   * `include_all_blocks`.
+   */
+  includeTokenBalances?: boolean
   /** Per-table field selection (which columns to return). */
   fieldSelection?: FieldSelection
   maxNumBlocks?: number
   maxNumTransactions?: number
   maxNumInstructions?: number
   maxNumLogs?: number
+  maxNumBalances?: number
+  maxNumTokenBalances?: number
+}
+
+/** Filter for selecting SPL token balance changes. All non-empty fields are AND-ed. */
+export interface TokenBalanceSelection {
+  account?: Array<string>
+  mint?: Array<string>
+  owner?: Array<string>
+  programId?: Array<string>
 }
 
 /** Filter for selecting transactions. All non-empty fields are AND-ed. */
 export interface TransactionSelection {
   feePayer?: Array<string>
+  /** Base58 `signatures[0]`, the canonical Solana transaction signature. */
+  transactionId?: Array<string>
+  /** Position of the transaction within its block. */
+  transactionIndex?: Array<number>
   success?: boolean
 }
