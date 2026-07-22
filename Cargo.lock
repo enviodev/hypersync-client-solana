@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "hypersync-client-solana"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "anyhow",
  "arrow",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "hypersync-solana-net-types"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "arrow",
  "hypersync-solana-schema",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "hypersync-solana-schema"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "arrow",
 ]
