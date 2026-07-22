@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `net-types`: `SolanaFieldSelection::full_physical()` - a selection naming
+  every physical parquet column of every table, in `hypersync-solana-schema`
+  order, excluding derived wire fields (`transaction_id`,
+  `executing_account_index`, `account_index_arguments`). Intended for
+  replication clients (hypersync skar-pull) that must not have columns
+  projected away. The variant-to-column mapping is locked to
+  `hypersync-solana-schema` by an in-repo test, so every future field must be
+  classified as physical or derived for CI to pass.
+- `net-types`: all seven `*Field` enums now derive `strum::VariantArray`
+  (`InstructionField::VARIANTS` etc.) for exhaustive variant enumeration.
+
 ## [0.0.8] - 2026-07-21
 
 Solana query-layer Wave 2. Every rename keeps the legacy key working via a

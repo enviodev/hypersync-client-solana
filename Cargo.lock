@@ -819,6 +819,8 @@ dependencies = [
 name = "hypersync-solana-net-types"
 version = "0.0.8"
 dependencies = [
+ "arrow",
+ "hypersync-solana-schema",
  "schemars",
  "serde",
  "serde_json",
