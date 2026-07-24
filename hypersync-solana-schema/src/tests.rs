@@ -65,8 +65,8 @@ fn test_token_balance_has_program_ids() {
 }
 
 #[test]
-fn test_seven_tables() {
-    assert_eq!(TABLE_NAMES.len(), 7);
+fn test_eight_tables() {
+    assert_eq!(TABLE_NAMES.len(), 8);
     for &name in TABLE_NAMES {
         assert!(
             schema_for_table(name).is_some(),
@@ -74,6 +74,69 @@ fn test_seven_tables() {
             name
         );
     }
+}
+
+#[test]
+fn test_account_activity_columns() {
+    let schema = account_activity();
+    // Grain + identity.
+    assert_eq!(
+        schema.field_with_name("slot").unwrap().data_type(),
+        &DataType::UInt64
+    );
+    assert!(!schema.field_with_name("slot").unwrap().is_nullable());
+    for name in [
+        "transaction_index",
+        "transaction_id",
+        "account_index",
+        "account",
+    ] {
+        assert!(schema.field_with_name(name).is_ok(), "missing {name}");
+    }
+    // Native SOL columns.
+    assert_eq!(
+        schema.field_with_name("pre_balance").unwrap().data_type(),
+        &DataType::UInt64
+    );
+    assert_eq!(
+        schema.field_with_name("post_balance").unwrap().data_type(),
+        &DataType::UInt64
+    );
+    // Flags.
+    for name in [
+        "is_signer",
+        "is_writable",
+        "is_fee_payer",
+        "from_lookup_table",
+    ] {
+        assert_eq!(
+            schema.field_with_name(name).unwrap().data_type(),
+            &DataType::Boolean,
+            "flag {name} should be Boolean"
+        );
+    }
+    // Token columns. Balances are decimal strings for Token-2022 range.
+    assert_eq!(
+        schema
+            .field_with_name("token_decimals")
+            .unwrap()
+            .data_type(),
+        &DataType::UInt8
+    );
+    assert_eq!(
+        schema
+            .field_with_name("pre_token_balance")
+            .unwrap()
+            .data_type(),
+        &DataType::Utf8
+    );
+    assert_eq!(
+        schema
+            .field_with_name("post_token_balance")
+            .unwrap()
+            .data_type(),
+        &DataType::Utf8
+    );
 }
 
 #[test]
