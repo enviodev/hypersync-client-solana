@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-26
+
+### Added
+
+- `schema`: new `account_activity` table merging native SOL balances and SPL
+  token balances into one row per (transaction, account), with reconstructed
+  `account_index` and header-derived flags (`is_signer`, `is_writable`,
+  `is_fee_payer`, `from_lookup_table`) plus token `mint` / `owner` /
+  `token_decimals`. Registered in `TABLE_NAMES` and `schema_for_table`. Coexists
+  with the legacy `balances` / `token_balances` tables (no removal). `net-types`
+  and `client` are re-released at 0.1.0 unchanged to keep the workspace on a
+  single version.
+
 ## [0.0.9] - 2026-07-22
 
 ### Added

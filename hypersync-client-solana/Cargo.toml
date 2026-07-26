@@ -1,6 +1,6 @@
 [package]
 name = "hypersync-client-solana"
-version = "0.0.9"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 description = "Rust client for Solana HyperSync"
@@ -25,8 +25,8 @@ tokio = { version = "1", features = ["time", "sync", "rt"] }
 tracing = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 
-hypersync-solana-net-types = { path = "../hypersync-solana-net-types", version = "0.0.9" }
-hypersync-solana-schema = { path = "../hypersync-solana-schema", version = "0.0.9" }
+hypersync-solana-net-types = { path = "../hypersync-solana-net-types", version = "0.1.0" }
+hypersync-solana-schema = { path = "../hypersync-solana-schema", version = "0.1.0" }
 
 [dev-dependencies]
 borsh = { version = "1", features = ["derive"] }
