@@ -7,27 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0-rc.2] - 2026-07-28
+## [0.2.0-rc.3] - 2026-07-28
 
-> **OPEN QUESTION, to settle before the final 0.2.0.** This RC makes *every*
-> query struct reject unknown fields, including the per-selection structs. That
-> is deliberately stricter than it strictly needs to be, and it has a cost: the
-> legacy per-selection `include_*` join flags, which earlier versions accepted
-> and ignored, are now hard errors. Any caller still sending them breaks at
-> upgrade rather than silently having them ignored.
->
-> The narrow alternative is to deny unknown fields only on `SolanaQuery` and
-> `SolanaFieldSelection`. That still catches the case that motivated this - a
-> client sending the removed `balances: [...]` and silently getting the entire
-> slot range back - while leaving stray keys inside a selection tolerated.
->
-> The argument for the strict version is that a misspelled filter field inside
-> a selection (`mnt` for `mint`) currently matches *everything*, which is the
-> same class of silent-widening bug, just one level down. The argument against
-> is the upgrade break for callers still sending `include_*`.
->
-> Shipping strict in the RC to find out who that actually affects. Revisit
-> before the non-rc release; relaxing it is a one-line change per struct.
+Supersedes 0.2.0-rc.2, which shipped a stricter unknown-field policy than we
+kept. The only difference is the scope of `deny_unknown_fields`: rc.2 applied
+it to the per-selection structs as well, rc.3 scopes it to the query envelope.
+Prefer rc.3.
 
 ### Added
 
@@ -50,14 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** every query struct now denies unknown fields. A query carrying
-  a field this version does not understand is rejected instead of silently
-  becoming a different query. This was motivated by the table removal above:
-  a client still sending `balances: [...]` previously deserialized to a query
-  with *no* filters, which the server answers with the entire slot range.
-  - Also now rejected: the per-selection `include_*` join flags, which were
-    previously accepted and ignored; and misspelled filter fields, which
-    previously matched everything.
+- **Breaking:** the query envelope - `SolanaQuery` and `SolanaFieldSelection` -
+  now denies unknown fields. A query naming a table or field this version does
+  not understand is rejected instead of silently becoming a different query.
+  This was motivated by the table removal above: a client still sending
+  `balances: [...]` previously deserialized to a query with *no* filters,
+  which the server answers with the entire slot range.
+  - The per-selection structs deliberately stay lenient, so callers still
+    sending the legacy per-selection `include_*` join flags - accepted and
+    ignored for several releases - keep working across this upgrade. The
+    known cost is that a misspelled filter field inside a selection is
+    ignored rather than rejected, which for an AND-ed selection means it
+    matches more rows than intended. That boundary is deliberate: the
+    envelope catches removed tables, selections stay tolerant.
   - The renames stay wire-compatible - serde aliases are known field names, so
     `instructions`, `program_id` and `field_selection.instruction` still
     deserialize.

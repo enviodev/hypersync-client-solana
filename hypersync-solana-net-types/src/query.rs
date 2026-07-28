@@ -71,7 +71,6 @@ pub struct SolanaQuery {
 /// All non-empty fields are AND-ed: an instruction must match at least one value
 /// in every non-empty field. Empty fields are ignored (match-all).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct InstructionSelection {
     /// Match instruction calls whose executing account (the invoked program) is
     /// one of these pubkeys. Renamed from `program_id`; the legacy key is still
@@ -165,7 +164,6 @@ impl InstructionSelection {
 
 /// Filter for selecting transactions.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TransactionSelection {
     /// Match transactions whose fee_payer is one of these pubkeys.
     #[serde(default)]
@@ -196,7 +194,6 @@ impl TransactionSelection {
 /// All non-empty fields are AND-ed: a log must match at least one value
 /// in every non-empty field. Empty fields are ignored (match-all).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct LogSelection {
     /// Match logs whose program_id is one of these pubkeys.
     #[serde(default)]
@@ -227,7 +224,6 @@ impl LogSelection {
 /// for wallet W" is therefore two selections, `[{account: [W]}, {owner: [W]}]`,
 /// because fields within one selection are AND-ed.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct AccountActivitySelection {
     /// Restrict to rows carrying a given side of the merge. Empty matches
     /// every row.
@@ -352,37 +348,21 @@ mod tests {
         );
     }
 
-    /// Every query struct denies unknown fields, so a field that this version
-    /// does not understand is an error rather than a silently different query.
-    /// That is the whole point of the strictness: the failure mode it replaces
-    /// is a removed filter being dropped and the query widening to match
-    /// everything.
+    /// The query envelope - `SolanaQuery` and `SolanaFieldSelection` - denies
+    /// unknown fields, so a table or field this version does not understand is
+    /// an error rather than a silently different query. The failure mode this
+    /// exists to prevent is a removed table selection being dropped and the
+    /// query widening to match everything.
     #[test]
-    fn unknown_fields_are_rejected() {
-        // A removed top-level table selection. Previously this deserialized to
-        // a query with NO filters, which the server answers with the entire
-        // range - the worst possible silent upgrade behaviour.
+    fn unknown_fields_on_the_query_envelope_are_rejected() {
+        // A removed top-level table selection. Without this, the query
+        // deserializes with NO filters, which the server answers with the
+        // entire slot range.
         let err = serde_json::from_str::<SolanaQuery>(
             r#"{"from_slot":0,"balances":[{"account":["a"]}]}"#,
         )
         .unwrap_err();
         assert!(err.to_string().contains("balances"), "{err}");
-
-        // A removed per-selection join flag. These used to be accepted and
-        // ignored; they are now rejected, so a caller still sending them finds
-        // out at upgrade time instead of wondering why they do nothing.
-        let err = serde_json::from_str::<SolanaQuery>(
-            r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true}]}"#,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("include_transaction"), "{err}");
-
-        // A misspelled filter field, which would otherwise match everything.
-        let err = serde_json::from_str::<SolanaQuery>(
-            r#"{"from_slot":0,"account_activity":[{"mnt":["m"]}]}"#,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("mnt"), "{err}");
 
         // A removed field-selection table.
         let err = serde_json::from_str::<SolanaQuery>(
@@ -390,6 +370,40 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("balance"), "{err}");
+
+        // A misspelled top-level key.
+        let err = serde_json::from_str::<SolanaQuery>(r#"{"from_slot":0,"max_num_blockz":5}"#)
+            .unwrap_err();
+        assert!(err.to_string().contains("max_num_blockz"), "{err}");
+    }
+
+    /// Selections deliberately do NOT deny unknown fields.
+    ///
+    /// The strictness is scoped to the envelope so that callers still sending
+    /// the legacy per-selection `include_*` join flags - accepted and ignored
+    /// for several releases - keep working across this upgrade rather than
+    /// failing outright.
+    ///
+    /// The known cost is that a misspelled filter field inside a selection is
+    /// silently ignored, which for an AND-ed selection means it matches more
+    /// rows than intended rather than fewer. That is the trade this boundary
+    /// makes: the envelope catches removed tables, selections stay lenient.
+    #[test]
+    fn unknown_fields_inside_a_selection_are_tolerated() {
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            q.instruction_calls[0].executing_account,
+            vec!["p".to_string()]
+        );
+
+        // A typo'd filter field is dropped, so the selection matches on the
+        // fields it did understand.
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"account_activity":[{"mnt":["m"]}]}"#).unwrap();
+        assert!(q.account_activity[0].mint.is_empty());
     }
 
     /// The renames stay wire-compatible: aliases are known field names, so
