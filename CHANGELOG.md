@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.2] - 2026-07-28
+
+> **OPEN QUESTION, to settle before the final 0.2.0.** This RC makes *every*
+> query struct reject unknown fields, including the per-selection structs. That
+> is deliberately stricter than it strictly needs to be, and it has a cost: the
+> legacy per-selection `include_*` join flags, which earlier versions accepted
+> and ignored, are now hard errors. Any caller still sending them breaks at
+> upgrade rather than silently having them ignored.
+>
+> The narrow alternative is to deny unknown fields only on `SolanaQuery` and
+> `SolanaFieldSelection`. That still catches the case that motivated this - a
+> client sending the removed `balances: [...]` and silently getting the entire
+> slot range back - while leaving stray keys inside a selection tolerated.
+>
+> The argument for the strict version is that a misspelled filter field inside
+> a selection (`mnt` for `mint`) currently matches *everything*, which is the
+> same class of silent-widening bug, just one level down. The argument against
+> is the upgrade break for callers still sending `include_*`.
+>
+> Shipping strict in the RC to find out who that actually affects. Revisit
+> before the non-rc release; relaxing it is a one-line change per struct.
+
 ### Added
 
 - `net-types`: `AccountActivitySelection` gains `kind` (`native` / `token`),
