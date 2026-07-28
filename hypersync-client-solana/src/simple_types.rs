@@ -78,39 +78,6 @@ pub struct Log {
     pub message: Option<String>,
 }
 
-/// SOL balance change for one account in one transaction.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Balance {
-    pub slot: u64,
-    pub transaction_index: Option<u32>,
-    pub account: Option<String>,
-    pub pre: Option<u64>,
-    pub post: Option<u64>,
-}
-
-/// SPL token balance change for one account in one transaction.
-///
-/// `pre_amount` and `post_amount` are kept as decimal strings to preserve the
-/// full precision the server sends (Token-2022 amounts can exceed u64::MAX)
-/// without surprising the user with parsing failures.
-///
-/// `pre_program_id` / `post_program_id` identify the owning token program
-/// (classic SPL Token vs Token-2022); they may be absent for older data that
-/// predates program-id capture. They are pre/post because an account can be
-/// reinitialized mid-transaction.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenBalance {
-    pub slot: u64,
-    pub transaction_index: Option<u32>,
-    pub account: Option<String>,
-    pub mint: Option<String>,
-    pub owner: Option<String>,
-    pub pre_amount: Option<String>,
-    pub post_amount: Option<String>,
-    pub pre_program_id: Option<String>,
-    pub post_program_id: Option<String>,
-}
-
 /// One account's activity in one transaction: the native SOL change, the SPL
 /// token balance, or both.
 ///
@@ -168,8 +135,6 @@ pub struct SolanaResponse {
     pub transactions: Vec<Transaction>,
     pub instructions: Vec<Instruction>,
     pub logs: Vec<Log>,
-    pub balances: Vec<Balance>,
-    pub token_balances: Vec<TokenBalance>,
     pub account_activity: Vec<AccountActivity>,
     pub rewards: Vec<Reward>,
     /// Raw response size in bytes (sum across all chunks, when used via `collect`).

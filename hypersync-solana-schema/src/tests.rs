@@ -48,25 +48,8 @@ fn test_instruction_schema_has_account_positions() {
 }
 
 #[test]
-fn test_token_balance_has_program_ids() {
-    let schema = token_balance();
-    // pre/post program id distinguish SPL Token from Token-2022.
-    assert!(schema.field_with_name("pre_program_id").is_ok());
-    assert!(schema.field_with_name("post_program_id").is_ok());
-    // Amounts are decimal strings so Token-2022 amounts above u64::MAX survive.
-    assert_eq!(
-        schema.field_with_name("pre_amount").unwrap().data_type(),
-        &DataType::Utf8
-    );
-    assert_eq!(
-        schema.field_with_name("post_amount").unwrap().data_type(),
-        &DataType::Utf8
-    );
-}
-
-#[test]
-fn test_eight_tables() {
-    assert_eq!(TABLE_NAMES.len(), 8);
+fn test_six_tables() {
+    assert_eq!(TABLE_NAMES.len(), 6);
     for &name in TABLE_NAMES {
         assert!(
             schema_for_table(name).is_some(),
@@ -137,6 +120,9 @@ fn test_account_activity_columns() {
             .data_type(),
         &DataType::Utf8
     );
+    // pre/post program id distinguish SPL Token from Token-2022.
+    assert!(schema.field_with_name("pre_program_id").is_ok());
+    assert!(schema.field_with_name("post_program_id").is_ok());
 }
 
 #[test]

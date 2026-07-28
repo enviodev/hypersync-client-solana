@@ -212,60 +212,6 @@ fn logs_round_trip() {
 }
 
 #[test]
-fn balances_round_trip() {
-    let batch = RecordBatch::try_new(
-        schema::balance(),
-        vec![
-            Arc::new(UInt64Array::from(vec![500u64])),
-            Arc::new(UInt32Array::from(vec![Some(0u32)])),
-            Arc::new(StringArray::from(vec![Some("acc")])),
-            Arc::new(UInt64Array::from(vec![Some(100u64)])),
-            Arc::new(UInt64Array::from(vec![Some(99u64)])),
-        ],
-    )
-    .unwrap();
-    let bal = balances_from_arrow(&batch).unwrap();
-    assert_eq!(bal.len(), 1);
-    assert_eq!(bal[0].pre, Some(100));
-    assert_eq!(bal[0].post, Some(99));
-}
-
-#[test]
-fn token_balances_round_trip() {
-    let batch = RecordBatch::try_new(
-        schema::token_balance(),
-        vec![
-            Arc::new(UInt64Array::from(vec![600u64])),
-            Arc::new(UInt32Array::from(vec![Some(0u32)])),
-            Arc::new(StringArray::from(vec![Some("ata")])),
-            Arc::new(StringArray::from(vec![Some("mint")])),
-            Arc::new(StringArray::from(vec![Some("owner")])),
-            Arc::new(StringArray::from(vec![Some("1000")])),
-            Arc::new(StringArray::from(vec![Some("900")])),
-            Arc::new(StringArray::from(vec![Some(
-                "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-            )])),
-            Arc::new(StringArray::from(vec![Some(
-                "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-            )])),
-        ],
-    )
-    .unwrap();
-    let tb = token_balances_from_arrow(&batch).unwrap();
-    assert_eq!(tb.len(), 1);
-    assert_eq!(tb[0].mint.as_deref(), Some("mint"));
-    assert_eq!(tb[0].pre_amount.as_deref(), Some("1000"));
-    assert_eq!(
-        tb[0].pre_program_id.as_deref(),
-        Some("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-    );
-    assert_eq!(
-        tb[0].post_program_id.as_deref(),
-        Some("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-    );
-}
-
-#[test]
 fn account_activity_round_trip() {
     // A merged row (native + token) and a token-only row, so both sides of the
     // de-merge the table represents are decoded.
@@ -352,39 +298,6 @@ fn account_activity_decodes_projected_subset() {
     assert_eq!(rows[0].mint.as_deref(), Some("mint"));
     assert_eq!(rows[0].transaction_id, None);
     assert_eq!(rows[0].pre_balance, None);
-}
-
-#[test]
-fn token_balances_decode_without_program_id_columns() {
-    // Older servers send the 7-column token_balance schema. The decoder must
-    // still work, leaving program ids None.
-    use arrow::datatypes::{DataType, Field, Schema};
-    let legacy_schema = Arc::new(Schema::new(vec![
-        Field::new("slot", DataType::UInt64, false),
-        Field::new("transaction_index", DataType::UInt32, true),
-        Field::new("account", DataType::Utf8, true),
-        Field::new("mint", DataType::Utf8, true),
-        Field::new("owner", DataType::Utf8, true),
-        Field::new("pre_amount", DataType::Utf8, true),
-        Field::new("post_amount", DataType::Utf8, true),
-    ]));
-    let batch = RecordBatch::try_new(
-        legacy_schema,
-        vec![
-            Arc::new(UInt64Array::from(vec![600u64])),
-            Arc::new(UInt32Array::from(vec![Some(0u32)])),
-            Arc::new(StringArray::from(vec![Some("ata")])),
-            Arc::new(StringArray::from(vec![Some("mint")])),
-            Arc::new(StringArray::from(vec![Some("owner")])),
-            Arc::new(StringArray::from(vec![Some("1000")])),
-            Arc::new(StringArray::from(vec![Some("900")])),
-        ],
-    )
-    .unwrap();
-    let tb = token_balances_from_arrow(&batch).unwrap();
-    assert_eq!(tb.len(), 1);
-    assert_eq!(tb[0].pre_program_id, None);
-    assert_eq!(tb[0].post_program_id, None);
 }
 
 #[test]

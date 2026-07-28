@@ -15,10 +15,6 @@ pub struct SolanaFieldSelection {
     #[serde(default)]
     pub log: Vec<LogField>,
     #[serde(default)]
-    pub balance: Vec<BalanceField>,
-    #[serde(default)]
-    pub token_balance: Vec<TokenBalanceField>,
-    #[serde(default)]
     pub account_activity: Vec<AccountActivityField>,
     #[serde(default)]
     pub reward: Vec<RewardField>,
@@ -59,8 +55,6 @@ impl SolanaFieldSelection {
             transaction: physical(DERIVED_TRANSACTION_FIELDS),
             instruction_call: physical(DERIVED_INSTRUCTION_FIELDS),
             log: physical(&[]),
-            balance: physical(&[]),
-            token_balance: physical(&[]),
             account_activity: physical(&[]),
             reward: physical(&[]),
         }
@@ -215,56 +209,6 @@ pub enum LogField {
     Message,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Display,
-    EnumString,
-    VariantArray,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum BalanceField {
-    Slot,
-    TransactionIndex,
-    Account,
-    Pre,
-    Post,
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Display,
-    EnumString,
-    VariantArray,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum TokenBalanceField {
-    Slot,
-    TransactionIndex,
-    Account,
-    Mint,
-    Owner,
-    PreAmount,
-    PostAmount,
-    PreProgramId,
-    PostProgramId,
-}
-
 /// Columns of the unified `account_activity` table: one row per
 /// (transaction, account), carrying the native SOL change, the SPL token
 /// balance, or both. Variant names must stay spelled exactly like the parquet
@@ -389,12 +333,6 @@ mod schema_coverage {
             hypersync_solana_schema::instruction(),
         );
         assert_table("log", &sel.log, hypersync_solana_schema::log());
-        assert_table("balance", &sel.balance, hypersync_solana_schema::balance());
-        assert_table(
-            "token_balance",
-            &sel.token_balance,
-            hypersync_solana_schema::token_balance(),
-        );
         assert_table(
             "account_activity",
             &sel.account_activity,

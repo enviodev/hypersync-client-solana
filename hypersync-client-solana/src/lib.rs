@@ -262,14 +262,6 @@ fn decode_response_tables(arrow: QueryResponse) -> Result<SolanaResponse> {
                     from_arrow::instructions_from_arrow(&batch).context("decode instructions")?
             }
             "logs" => resp.logs = from_arrow::logs_from_arrow(&batch).context("decode logs")?,
-            "balances" => {
-                resp.balances =
-                    from_arrow::balances_from_arrow(&batch).context("decode balances")?
-            }
-            "token_balances" => {
-                resp.token_balances = from_arrow::token_balances_from_arrow(&batch)
-                    .context("decode token_balances")?
-            }
             "account_activity" => {
                 resp.account_activity = from_arrow::account_activity_from_arrow(&batch)
                     .context("decode account_activity")?

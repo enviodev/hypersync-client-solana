@@ -100,34 +100,6 @@ pub fn log() -> SchemaRef {
     ]))
 }
 
-pub fn balance() -> SchemaRef {
-    Arc::new(Schema::new(vec![
-        Field::new("slot", DataType::UInt64, false),
-        Field::new("transaction_index", DataType::UInt32, true),
-        Field::new("account", DataType::Utf8, true),
-        Field::new("pre", DataType::UInt64, true),
-        Field::new("post", DataType::UInt64, true),
-    ]))
-}
-
-pub fn token_balance() -> SchemaRef {
-    Arc::new(Schema::new(vec![
-        Field::new("slot", DataType::UInt64, false),
-        Field::new("transaction_index", DataType::UInt32, true),
-        Field::new("account", DataType::Utf8, true),
-        Field::new("mint", DataType::Utf8, true),
-        Field::new("owner", DataType::Utf8, true),
-        // Amounts are decimal strings (not u64) so Token-2022 balances that
-        // exceed u64::MAX in base units round-trip without truncation.
-        Field::new("pre_amount", DataType::Utf8, true),
-        Field::new("post_amount", DataType::Utf8, true),
-        // Owning token program (classic SPL Token vs Token-2022). Pre/post are
-        // separate because an account can be reinitialized mid-transaction.
-        Field::new("pre_program_id", DataType::Utf8, true),
-        Field::new("post_program_id", DataType::Utf8, true),
-    ]))
-}
-
 /// Unified per-(transaction, account) activity table (v1).
 ///
 /// Merges native SOL balance changes (`balances`) and SPL token balance
@@ -181,8 +153,6 @@ pub const TABLE_NAMES: &[&str] = &[
     "transactions",
     "instructions",
     "logs",
-    "balances",
-    "token_balances",
     "account_activity",
     "rewards",
 ];
@@ -194,8 +164,6 @@ pub fn schema_for_table(table: &str) -> Option<SchemaRef> {
         "transactions" => Some(transaction()),
         "instructions" => Some(instruction()),
         "logs" => Some(log()),
-        "balances" => Some(balance()),
-        "token_balances" => Some(token_balance()),
         "account_activity" => Some(account_activity()),
         "rewards" => Some(reward()),
         _ => None,

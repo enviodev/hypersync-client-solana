@@ -10,9 +10,7 @@ use arrow::array::{
 };
 use arrow::record_batch::RecordBatch;
 
-use crate::simple_types::{
-    AccountActivity, Balance, Block, Instruction, Log, Reward, TokenBalance, Transaction,
-};
+use crate::simple_types::{AccountActivity, Block, Instruction, Log, Reward, Transaction};
 
 // ---------- column accessor helpers ----------
 
@@ -323,30 +321,6 @@ pub fn logs_from_arrow(batch: &RecordBatch) -> Result<Vec<Log>> {
     Ok(out)
 }
 
-pub fn balances_from_arrow(batch: &RecordBatch) -> Result<Vec<Balance>> {
-    let n = batch.num_rows();
-    if n == 0 {
-        return Ok(Vec::new());
-    }
-    let slot = col::<UInt64Array>(batch, "slot")?;
-    let tx_index = opt_col::<UInt32Array>(batch, "transaction_index")?;
-    let account = opt_col::<StringArray>(batch, "account")?;
-    let pre = opt_col::<UInt64Array>(batch, "pre")?;
-    let post = opt_col::<UInt64Array>(batch, "post")?;
-
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        out.push(Balance {
-            slot: slot.value(i),
-            transaction_index: tx_index.and_then(|a| get_u32(a, i)),
-            account: account.and_then(|a| get_str(a, i)),
-            pre: pre.and_then(|a| get_u64(a, i)),
-            post: post.and_then(|a| get_u64(a, i)),
-        });
-    }
-    Ok(out)
-}
-
 /// Decode the merged `account_activity` table.
 ///
 /// Every column except `slot` is read with `opt_col` so a response that
@@ -395,39 +369,6 @@ pub fn account_activity_from_arrow(batch: &RecordBatch) -> Result<Vec<AccountAct
             token_decimals: token_decimals.and_then(|a| get_u8(a, i)),
             pre_token_balance: pre_token_balance.and_then(|a| get_str(a, i)),
             post_token_balance: post_token_balance.and_then(|a| get_str(a, i)),
-            pre_program_id: pre_program_id.and_then(|a| get_str(a, i)),
-            post_program_id: post_program_id.and_then(|a| get_str(a, i)),
-        });
-    }
-    Ok(out)
-}
-
-pub fn token_balances_from_arrow(batch: &RecordBatch) -> Result<Vec<TokenBalance>> {
-    let n = batch.num_rows();
-    if n == 0 {
-        return Ok(Vec::new());
-    }
-    let slot = col::<UInt64Array>(batch, "slot")?;
-    let tx_index = opt_col::<UInt32Array>(batch, "transaction_index")?;
-    let account = opt_col::<StringArray>(batch, "account")?;
-    let mint = opt_col::<StringArray>(batch, "mint")?;
-    let owner = opt_col::<StringArray>(batch, "owner")?;
-    let pre = opt_col::<StringArray>(batch, "pre_amount")?;
-    let post = opt_col::<StringArray>(batch, "post_amount")?;
-    // Optional so responses from servers predating program-id capture still decode.
-    let pre_program_id = opt_col::<StringArray>(batch, "pre_program_id")?;
-    let post_program_id = opt_col::<StringArray>(batch, "post_program_id")?;
-
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        out.push(TokenBalance {
-            slot: slot.value(i),
-            transaction_index: tx_index.and_then(|a| get_u32(a, i)),
-            account: account.and_then(|a| get_str(a, i)),
-            mint: mint.and_then(|a| get_str(a, i)),
-            owner: owner.and_then(|a| get_str(a, i)),
-            pre_amount: pre.and_then(|a| get_str(a, i)),
-            post_amount: post.and_then(|a| get_str(a, i)),
             pre_program_id: pre_program_id.and_then(|a| get_str(a, i)),
             post_program_id: post_program_id.and_then(|a| get_str(a, i)),
         });
