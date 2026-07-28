@@ -55,7 +55,9 @@ pub struct SolanaQuery {
     #[serde(default)]
     pub account_activity: Vec<AccountActivitySelection>,
     /// When true, return `account_activity` for the matched result set without
-    /// requiring `include_all_blocks`. See `include_balances`.
+    /// requiring `include_all_blocks`. With no other filters this returns all
+    /// activity in range; combined with a filtered table it returns the
+    /// activity of the matched transactions.
     #[serde(default)]
     pub include_account_activity: bool,
     /// Maximum number of account activity rows to return before stopping.
