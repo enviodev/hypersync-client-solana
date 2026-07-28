@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Returns block bundles matching the given filters within [from_slot, to_slot).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SolanaQuery {
     /// Inclusive start slot.
     pub from_slot: u64,
@@ -70,6 +71,7 @@ pub struct SolanaQuery {
 /// All non-empty fields are AND-ed: an instruction must match at least one value
 /// in every non-empty field. Empty fields are ignored (match-all).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InstructionSelection {
     /// Match instruction calls whose executing account (the invoked program) is
     /// one of these pubkeys. Renamed from `program_id`; the legacy key is still
@@ -163,6 +165,7 @@ impl InstructionSelection {
 
 /// Filter for selecting transactions.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TransactionSelection {
     /// Match transactions whose fee_payer is one of these pubkeys.
     #[serde(default)]
@@ -193,6 +196,7 @@ impl TransactionSelection {
 /// All non-empty fields are AND-ed: a log must match at least one value
 /// in every non-empty field. Empty fields are ignored (match-all).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LogSelection {
     /// Match logs whose program_id is one of these pubkeys.
     #[serde(default)]
@@ -217,12 +221,29 @@ impl LogSelection {
 /// `account_activity` merges the native SOL and SPL token sides into one row,
 /// so a single selection can express what previously needed a `balances` and a
 /// `token_balances` selection joined together.
+///
+/// Note that `account` means different things on the two sides: on a native
+/// row it is the wallet, on a token row it is the token account. "Everything
+/// for wallet W" is therefore two selections, `[{account: [W]}, {owner: [W]}]`,
+/// because fields within one selection are AND-ed.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AccountActivitySelection {
+    /// Restrict to rows carrying a given side of the merge. Empty matches
+    /// every row.
+    ///
+    /// A row that carries both sides matches either value, so
+    /// `kind: ["native"]` is exactly the row set the removed `balances` table
+    /// held, and `kind: ["token"]` the row set `token_balances` held.
+    #[serde(default)]
+    pub kind: Vec<ActivityKind>,
     /// Match by account address. For token rows this is the token account
     /// (the ATA / raw token account), matching `token_balances.account`.
     #[serde(default)]
     pub account: Vec<String>,
+    /// Match by the transaction's base58 `signatures[0]`.
+    #[serde(default)]
+    pub transaction_id: Vec<String>,
     /// Match by mint address. Only token rows carry a mint, so a non-empty
     /// mint filter restricts the result to token activity.
     #[serde(default)]
@@ -231,17 +252,51 @@ pub struct AccountActivitySelection {
     #[serde(default)]
     pub owner: Vec<String>,
     /// Match by token program id (classic SPL Token vs Token-2022).
-    /// Matches the post program id, falling back to the pre program id.
+    /// Matches either the post or the pre program id.
     #[serde(default)]
     pub program_id: Vec<String>,
+    /// Match rows whose account is a transaction signer.
+    ///
+    /// The position flags are derived from the message header, so a source
+    /// that could not derive one leaves it null. A null flag matches neither
+    /// `true` nor `false`: unknown is not the same as false.
+    #[serde(default)]
+    pub is_signer: Option<bool>,
+    /// Match rows whose account is writable. See `is_signer` on nulls.
+    #[serde(default)]
+    pub is_writable: Option<bool>,
+    /// Match rows whose account is the transaction's fee payer. See
+    /// `is_signer` on nulls.
+    #[serde(default)]
+    pub is_fee_payer: Option<bool>,
+    /// Match rows whose account came from an address lookup table. See
+    /// `is_signer` on nulls.
+    #[serde(default)]
+    pub from_lookup_table: Option<bool>,
+}
+
+/// Which side of a merged `account_activity` row to match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityKind {
+    /// The account's native SOL balance changed in this transaction.
+    Native,
+    /// The account appeared in this transaction's token-balance metadata.
+    Token,
 }
 
 impl AccountActivitySelection {
     pub fn is_empty(&self) -> bool {
-        self.account.is_empty()
+        self.kind.is_empty()
+            && self.account.is_empty()
+            && self.transaction_id.is_empty()
             && self.mint.is_empty()
             && self.owner.is_empty()
             && self.program_id.is_empty()
+            && self.is_signer.is_none()
+            && self.is_writable.is_none()
+            && self.is_fee_payer.is_none()
+            && self.from_lookup_table.is_none()
     }
 }
 
@@ -297,19 +352,75 @@ mod tests {
         );
     }
 
+    /// Every query struct denies unknown fields, so a field that this version
+    /// does not understand is an error rather than a silently different query.
+    /// That is the whole point of the strictness: the failure mode it replaces
+    /// is a removed filter being dropped and the query widening to match
+    /// everything.
     #[test]
-    fn legacy_include_flags_are_ignored() {
-        // The per-selection `include_*` join flags have been removed. Queries that
-        // still carry them must keep deserializing (the unknown keys are ignored)
-        // since the server no longer handles them.
+    fn unknown_fields_are_rejected() {
+        // A removed top-level table selection. Previously this deserialized to
+        // a query with NO filters, which the server answers with the entire
+        // range - the worst possible silent upgrade behaviour.
+        let err = serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"balances":[{"account":["a"]}]}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("balances"), "{err}");
+
+        // A removed per-selection join flag. These used to be accepted and
+        // ignored; they are now rejected, so a caller still sending them finds
+        // out at upgrade time instead of wondering why they do nothing.
+        let err = serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true}]}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("include_transaction"), "{err}");
+
+        // A misspelled filter field, which would otherwise match everything.
+        let err = serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"account_activity":[{"mnt":["m"]}]}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("mnt"), "{err}");
+
+        // A removed field-selection table.
+        let err = serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"field_selection":{"balance":["slot"]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("balance"), "{err}");
+    }
+
+    /// The renames stay wire-compatible: aliases are known field names, so
+    /// deny_unknown_fields does not reject them.
+    #[test]
+    fn legacy_aliases_still_deserialize_under_strictness() {
         let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
+            r#"{"from_slot":0,"instructions":[{"program_id":["p"]}],"field_selection":{"instruction":["slot"]}}"#,
         )
         .unwrap();
         assert_eq!(
             q.instruction_calls[0].executing_account,
             vec!["p".to_string()]
         );
+        assert_eq!(
+            q.field_selection.instruction_call,
+            vec![crate::field_selection::InstructionField::Slot]
+        );
+    }
+
+    #[test]
+    fn account_activity_kind_and_flag_filters_deserialize() {
+        let q: SolanaQuery = serde_json::from_str(
+            r#"{"from_slot":0,"account_activity":[{"kind":["native"],"is_fee_payer":true,"transaction_id":["sig"]}]}"#,
+        )
+        .unwrap();
+        let sel = &q.account_activity[0];
+        assert_eq!(sel.kind, vec![ActivityKind::Native]);
+        assert_eq!(sel.is_fee_payer, Some(true));
+        assert_eq!(sel.transaction_id, vec!["sig".to_string()]);
+        assert!(!sel.is_empty());
     }
 
     #[test]

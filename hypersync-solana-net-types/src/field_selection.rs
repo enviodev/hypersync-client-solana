@@ -4,6 +4,7 @@ use strum_macros::{Display, EnumString, VariantArray};
 /// Per-table field selection: which columns to include in the response.
 /// If a table's field list is empty, all columns are returned.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SolanaFieldSelection {
     #[serde(default)]
     pub block: Vec<BlockField>,

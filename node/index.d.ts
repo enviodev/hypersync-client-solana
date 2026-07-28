@@ -28,10 +28,25 @@ export declare class SolanaClient {
  * a native-balance selection and a token-balance selection together.
  */
 export interface AccountActivitySelection {
+  /**
+   * Restrict to rows carrying a given side of the merge: "native", "token",
+   * or both. A row carrying both sides matches either value, so `["native"]`
+   * is the row set the removed `balances` table held.
+   */
+  kind?: Array<string>
   account?: Array<string>
+  transactionId?: Array<string>
   mint?: Array<string>
   owner?: Array<string>
   programId?: Array<string>
+  /**
+   * Position flags. A row whose flag is null (the source could not derive it)
+   * matches neither true nor false.
+   */
+  isSigner?: boolean
+  isWritable?: boolean
+  isFeePayer?: boolean
+  fromLookupTable?: boolean
 }
 
 

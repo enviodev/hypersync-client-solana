@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `net-types`: `AccountActivitySelection` gains `kind` (`native` / `token`),
+  `transaction_id`, and the four position flags (`is_signer`, `is_writable`,
+  `is_fee_payer`, `from_lookup_table`).
+  - `kind` uses the same predicate the ingest de-merge uses, so a query filter
+    and a de-merge always agree on what a native row is. A row carrying both
+    sides matches either value, which makes `kind: ["native"]` exactly the row
+    set the removed `balances` table held, and `kind: ["token"]` the row set
+    `token_balances` held. That is the intended migration for anyone who used
+    the split tables to get one side.
+  - The flags are `Option<bool>`. A row whose flag is null - the source could
+    not derive it - matches neither `true` nor `false`, because unknown is not
+    the same as false.
+  - Note this filters the response, not the parquet read: there is no
+    row-group index on nullness, so a `kind`-filtered query still scans the
+    slot range. It removes the rows from the response and from the join key
+    set, not the bytes read from disk.
+
+### Changed
+
+- **Breaking:** every query struct now denies unknown fields. A query carrying
+  a field this version does not understand is rejected instead of silently
+  becoming a different query. This was motivated by the table removal above:
+  a client still sending `balances: [...]` previously deserialized to a query
+  with *no* filters, which the server answers with the entire slot range.
+  - Also now rejected: the per-selection `include_*` join flags, which were
+    previously accepted and ignored; and misspelled filter fields, which
+    previously matched everything.
+  - The renames stay wire-compatible - serde aliases are known field names, so
+    `instructions`, `program_id` and `field_selection.instruction` still
+    deserialize.
+
+
 ## [0.2.0-rc.1] - 2026-07-28
 
 Release candidate. Breaking: the `balances` and `token_balances` tables are

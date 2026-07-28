@@ -6,7 +6,7 @@ use hypersync_solana_net_types::field_selection::{
     SolanaFieldSelection, TransactionField,
 };
 use hypersync_solana_net_types::query::{
-    AccountActivitySelection as RsAccountActivitySelection,
+    AccountActivitySelection as RsAccountActivitySelection, ActivityKind as RsActivityKind,
     InstructionSelection as RsInstructionSelection, LogSelection as RsLogSelection,
     SolanaQuery as RsSolanaQuery, TransactionSelection as RsTransactionSelection,
 };
@@ -83,10 +83,21 @@ pub struct LogSelection {
 #[napi(object)]
 #[derive(Default, Clone)]
 pub struct AccountActivitySelection {
+    /// Restrict to rows carrying a given side of the merge: "native",
+    /// "token", or both. A row carrying both sides matches either value, so
+    /// `["native"]` is the row set the removed `balances` table held.
+    pub kind: Option<Vec<String>>,
     pub account: Option<Vec<String>>,
+    pub transaction_id: Option<Vec<String>>,
     pub mint: Option<Vec<String>>,
     pub owner: Option<Vec<String>>,
     pub program_id: Option<Vec<String>>,
+    /// Position flags. A row whose flag is null (the source could not derive
+    /// it) matches neither true nor false.
+    pub is_signer: Option<bool>,
+    pub is_writable: Option<bool>,
+    pub is_fee_payer: Option<bool>,
+    pub from_lookup_table: Option<bool>,
 }
 
 /// Top-level Solana HyperSync query. Returns block bundles matching the
@@ -204,14 +215,34 @@ impl From<LogSelection> for RsLogSelection {
     }
 }
 
-impl From<AccountActivitySelection> for RsAccountActivitySelection {
-    fn from(s: AccountActivitySelection) -> Self {
-        RsAccountActivitySelection {
+impl TryFrom<AccountActivitySelection> for RsAccountActivitySelection {
+    type Error = anyhow::Error;
+
+    fn try_from(s: AccountActivitySelection) -> Result<Self> {
+        let kind = s
+            .kind
+            .unwrap_or_default()
+            .into_iter()
+            .map(|k| match k.as_str() {
+                "native" => Ok(RsActivityKind::Native),
+                "token" => Ok(RsActivityKind::Token),
+                other => Err(anyhow::anyhow!(
+                    "unknown account activity kind `{other}`, expected \"native\" or \"token\""
+                )),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(RsAccountActivitySelection {
+            kind,
             account: s.account.unwrap_or_default(),
+            transaction_id: s.transaction_id.unwrap_or_default(),
             mint: s.mint.unwrap_or_default(),
             owner: s.owner.unwrap_or_default(),
             program_id: s.program_id.unwrap_or_default(),
-        }
+            is_signer: s.is_signer,
+            is_writable: s.is_writable,
+            is_fee_payer: s.is_fee_payer,
+            from_lookup_table: s.from_lookup_table,
+        })
     }
 }
 
@@ -262,8 +293,8 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
                 .account_activity
                 .unwrap_or_default()
                 .into_iter()
-                .map(Into::into)
-                .collect(),
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>>>()?,
             include_all_blocks: q.include_all_blocks.unwrap_or_default(),
             include_account_activity: q.include_account_activity.unwrap_or_default(),
             field_selection,
