@@ -17,7 +17,8 @@ pub struct QueryResponse {
     /// Number of bytes in the raw server response (useful for tuning).
     pub response_bytes: i64,
     /// Per-table row arrays. Keys are table names: `blocks`, `transactions`,
-    /// `instructions`, `logs`, `balances`, `token_balances`, `rewards`.
+    /// `instructions`, `logs`, `balances`, `token_balances`, `account_activity`,
+    /// `rewards`.
     pub tables: HashMap<String, Vec<RowObject>>,
 }
 

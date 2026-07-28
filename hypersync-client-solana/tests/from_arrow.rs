@@ -266,6 +266,95 @@ fn token_balances_round_trip() {
 }
 
 #[test]
+fn account_activity_round_trip() {
+    // A merged row (native + token) and a token-only row, so both sides of the
+    // de-merge the table represents are decoded.
+    let batch = RecordBatch::try_new(
+        schema::account_activity(),
+        vec![
+            Arc::new(UInt64Array::from(vec![700u64, 700])),
+            Arc::new(UInt32Array::from(vec![Some(1u32), Some(1u32)])),
+            Arc::new(StringArray::from(vec![Some("sig"), Some("sig")])),
+            Arc::new(UInt32Array::from(vec![Some(0u32), Some(3u32)])),
+            Arc::new(StringArray::from(vec![Some("acc"), Some("ata")])),
+            Arc::new(UInt64Array::from(vec![Some(100u64), None])),
+            Arc::new(UInt64Array::from(vec![Some(99u64), None])),
+            Arc::new(BooleanArray::from(vec![Some(true), Some(false)])),
+            Arc::new(BooleanArray::from(vec![Some(true), Some(true)])),
+            Arc::new(BooleanArray::from(vec![Some(true), Some(false)])),
+            Arc::new(BooleanArray::from(vec![Some(false), Some(true)])),
+            Arc::new(StringArray::from(vec![None, Some("mint")])),
+            Arc::new(StringArray::from(vec![None, Some("owner")])),
+            Arc::new(UInt8Array::from(vec![None, Some(6u8)])),
+            Arc::new(StringArray::from(vec![None, Some("1000")])),
+            Arc::new(StringArray::from(vec![None, Some("900")])),
+            Arc::new(StringArray::from(vec![
+                None,
+                Some("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            ])),
+            Arc::new(StringArray::from(vec![
+                None,
+                Some("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            ])),
+        ],
+    )
+    .unwrap();
+    let rows = account_activity_from_arrow(&batch).unwrap();
+    assert_eq!(rows.len(), 2);
+
+    // Native side populated, token side absent.
+    let native = &rows[0];
+    assert_eq!(native.slot, 700);
+    assert_eq!(native.transaction_id.as_deref(), Some("sig"));
+    assert_eq!(native.account_index, Some(0));
+    assert_eq!(native.pre_balance, Some(100));
+    assert_eq!(native.post_balance, Some(99));
+    assert_eq!(native.is_signer, Some(true));
+    assert_eq!(native.is_fee_payer, Some(true));
+    assert_eq!(native.from_lookup_table, Some(false));
+    assert_eq!(native.mint, None);
+    assert_eq!(native.token_decimals, None);
+
+    // Token side populated, native side absent.
+    let token = &rows[1];
+    assert_eq!(token.account.as_deref(), Some("ata"));
+    assert_eq!(token.pre_balance, None);
+    assert_eq!(token.mint.as_deref(), Some("mint"));
+    assert_eq!(token.owner.as_deref(), Some("owner"));
+    assert_eq!(token.token_decimals, Some(6));
+    assert_eq!(token.pre_token_balance.as_deref(), Some("1000"));
+    assert_eq!(token.post_token_balance.as_deref(), Some("900"));
+    assert_eq!(token.from_lookup_table, Some(true));
+}
+
+/// A projected response carries only the selected columns; the decoder must
+/// fill the rest with None rather than failing.
+#[test]
+fn account_activity_decodes_projected_subset() {
+    use arrow::datatypes::Schema;
+    let projected = Arc::new(Schema::new(vec![
+        Field::new("slot", DataType::UInt64, false),
+        Field::new("account", DataType::Utf8, true),
+        Field::new("mint", DataType::Utf8, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        projected,
+        vec![
+            Arc::new(UInt64Array::from(vec![800u64])),
+            Arc::new(StringArray::from(vec![Some("ata")])),
+            Arc::new(StringArray::from(vec![Some("mint")])),
+        ],
+    )
+    .unwrap();
+    let rows = account_activity_from_arrow(&batch).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].slot, 800);
+    assert_eq!(rows[0].mint.as_deref(), Some("mint"));
+    assert_eq!(rows[0].transaction_id, None);
+    assert_eq!(rows[0].pre_balance, None);
+}
+
+#[test]
 fn token_balances_decode_without_program_id_columns() {
     // Older servers send the 7-column token_balance schema. The decoder must
     // still work, leaving program ids None.

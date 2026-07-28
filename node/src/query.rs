@@ -2,13 +2,13 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use hypersync_solana_net_types::field_selection::{
-    BalanceField, BlockField, InstructionField, LogField, RewardField, SolanaFieldSelection,
-    TokenBalanceField, TransactionField,
+    AccountActivityField, BalanceField, BlockField, InstructionField, LogField, RewardField,
+    SolanaFieldSelection, TokenBalanceField, TransactionField,
 };
 use hypersync_solana_net_types::query::{
-    BalanceSelection as RsBalanceSelection, InstructionSelection as RsInstructionSelection,
-    LogSelection as RsLogSelection, SolanaQuery as RsSolanaQuery,
-    TokenBalanceSelection as RsTokenBalanceSelection,
+    AccountActivitySelection as RsAccountActivitySelection, BalanceSelection as RsBalanceSelection,
+    InstructionSelection as RsInstructionSelection, LogSelection as RsLogSelection,
+    SolanaQuery as RsSolanaQuery, TokenBalanceSelection as RsTokenBalanceSelection,
     TransactionSelection as RsTransactionSelection,
 };
 
@@ -26,6 +26,7 @@ pub struct FieldSelection {
     pub log: Option<Vec<String>>,
     pub balance: Option<Vec<String>>,
     pub token_balance: Option<Vec<String>>,
+    pub account_activity: Option<Vec<String>>,
     pub reward: Option<Vec<String>>,
 }
 
@@ -95,6 +96,19 @@ pub struct TokenBalanceSelection {
     pub program_id: Option<Vec<String>>,
 }
 
+/// Filter for selecting rows of the merged `account_activity` table. All
+/// non-empty fields are AND-ed. Because the table carries the native SOL and
+/// SPL token sides on one row, this replaces pairing a `BalanceSelection` with
+/// a `TokenBalanceSelection`.
+#[napi(object)]
+#[derive(Default, Clone)]
+pub struct AccountActivitySelection {
+    pub account: Option<Vec<String>>,
+    pub mint: Option<Vec<String>>,
+    pub owner: Option<Vec<String>>,
+    pub program_id: Option<Vec<String>>,
+}
+
 /// Top-level Solana HyperSync query. Returns block bundles matching the
 /// given filters within `[from_slot, to_slot)`.
 #[napi(object)]
@@ -112,6 +126,7 @@ pub struct SolanaQuery {
     pub logs: Option<Vec<LogSelection>>,
     pub balances: Option<Vec<BalanceSelection>>,
     pub token_balances: Option<Vec<TokenBalanceSelection>>,
+    pub account_activity: Option<Vec<AccountActivitySelection>>,
     pub include_all_blocks: Option<bool>,
     /// Return native SOL balances for the matched result set without requiring
     /// `include_all_blocks`.
@@ -119,6 +134,9 @@ pub struct SolanaQuery {
     /// Return SPL token balances for the matched result set without requiring
     /// `include_all_blocks`.
     pub include_token_balances: Option<bool>,
+    /// Return merged account activity for the matched result set without
+    /// requiring `include_all_blocks`.
+    pub include_account_activity: Option<bool>,
     /// Per-table field selection (which columns to return).
     pub field_selection: Option<FieldSelection>,
     pub max_num_blocks: Option<i64>,
@@ -127,6 +145,7 @@ pub struct SolanaQuery {
     pub max_num_logs: Option<i64>,
     pub max_num_balances: Option<i64>,
     pub max_num_token_balances: Option<i64>,
+    pub max_num_account_activity: Option<i64>,
 }
 
 fn parse_enum_list<T: FromStr>(name: &str, vals: Vec<String>) -> Result<Vec<T>>
@@ -159,6 +178,10 @@ impl TryFrom<FieldSelection> for SolanaFieldSelection {
             token_balance: parse_enum_list::<TokenBalanceField>(
                 "token_balance",
                 f.token_balance.unwrap_or_default(),
+            )?,
+            account_activity: parse_enum_list::<AccountActivityField>(
+                "account_activity",
+                f.account_activity.unwrap_or_default(),
             )?,
             reward: parse_enum_list::<RewardField>("reward", f.reward.unwrap_or_default())?,
         })
@@ -235,6 +258,17 @@ impl From<TokenBalanceSelection> for RsTokenBalanceSelection {
     }
 }
 
+impl From<AccountActivitySelection> for RsAccountActivitySelection {
+    fn from(s: AccountActivitySelection) -> Self {
+        RsAccountActivitySelection {
+            account: s.account.unwrap_or_default(),
+            mint: s.mint.unwrap_or_default(),
+            owner: s.owner.unwrap_or_default(),
+            program_id: s.program_id.unwrap_or_default(),
+        }
+    }
+}
+
 impl TryFrom<SolanaQuery> for RsSolanaQuery {
     type Error = anyhow::Error;
 
@@ -258,6 +292,10 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
         let max_num_token_balances = q
             .max_num_token_balances
             .map(|v| usize::try_from(v).context("max_num_token_balances must be non-negative"))
+            .transpose()?;
+        let max_num_account_activity = q
+            .max_num_account_activity
+            .map(|v| usize::try_from(v).context("max_num_account_activity must be non-negative"))
             .transpose()?;
 
         Ok(RsSolanaQuery {
@@ -294,9 +332,16 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
+            account_activity: q
+                .account_activity
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             include_all_blocks: q.include_all_blocks.unwrap_or_default(),
             include_balances: q.include_balances.unwrap_or_default(),
             include_token_balances: q.include_token_balances.unwrap_or_default(),
+            include_account_activity: q.include_account_activity.unwrap_or_default(),
             field_selection,
             max_num_blocks: q.max_num_blocks.map(|v| v.max(0) as usize),
             max_num_transactions: q.max_num_transactions.map(|v| v.max(0) as usize),
@@ -304,6 +349,7 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
             max_num_logs: q.max_num_logs.map(|v| v.max(0) as usize),
             max_num_balances,
             max_num_token_balances,
+            max_num_account_activity,
         })
     }
 }

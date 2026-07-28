@@ -74,6 +74,21 @@ pub struct SolanaQuery {
     /// Maximum number of token balance rows to return before stopping.
     #[serde(default)]
     pub max_num_token_balances: Option<usize>,
+
+    /// Unified per-(transaction, account) activity selections. A row is
+    /// included if it matches at least one selection (empty selection `{}`
+    /// matches all). Same join semantics as `balances` / `token_balances`:
+    /// rows are keyed to a transaction via `transaction_index`, and requesting
+    /// them does NOT force every block in the range to be returned.
+    #[serde(default)]
+    pub account_activity: Vec<AccountActivitySelection>,
+    /// When true, return `account_activity` for the matched result set without
+    /// requiring `include_all_blocks`. See `include_balances`.
+    #[serde(default)]
+    pub include_account_activity: bool,
+    /// Maximum number of account activity rows to return before stopping.
+    #[serde(default)]
+    pub max_num_account_activity: Option<usize>,
 }
 
 /// Filter for selecting instructions.
@@ -260,6 +275,43 @@ pub struct TokenBalanceSelection {
 }
 
 impl TokenBalanceSelection {
+    pub fn is_empty(&self) -> bool {
+        self.account.is_empty()
+            && self.mint.is_empty()
+            && self.owner.is_empty()
+            && self.program_id.is_empty()
+    }
+}
+
+/// Filter for selecting rows of the unified `account_activity` table.
+///
+/// All non-empty fields are AND-ed: a row must match at least one value in
+/// every non-empty field. Empty fields are ignored (match-all). An empty
+/// selection `{}` returns every account activity row in the queried range.
+///
+/// `account_activity` merges the native SOL and SPL token sides into one row,
+/// so a single selection can express what previously needed a `balances` and a
+/// `token_balances` selection joined together.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AccountActivitySelection {
+    /// Match by account address. For token rows this is the token account
+    /// (the ATA / raw token account), matching `token_balances.account`.
+    #[serde(default)]
+    pub account: Vec<String>,
+    /// Match by mint address. Only token rows carry a mint, so a non-empty
+    /// mint filter restricts the result to token activity.
+    #[serde(default)]
+    pub mint: Vec<String>,
+    /// Match by owner (wallet) address.
+    #[serde(default)]
+    pub owner: Vec<String>,
+    /// Match by token program id (classic SPL Token vs Token-2022).
+    /// Matches the post program id, falling back to the pre program id.
+    #[serde(default)]
+    pub program_id: Vec<String>,
+}
+
+impl AccountActivitySelection {
     pub fn is_empty(&self) -> bool {
         self.account.is_empty()
             && self.mint.is_empty()

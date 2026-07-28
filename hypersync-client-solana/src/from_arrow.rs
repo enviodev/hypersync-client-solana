@@ -10,7 +10,9 @@ use arrow::array::{
 };
 use arrow::record_batch::RecordBatch;
 
-use crate::simple_types::{Balance, Block, Instruction, Log, Reward, TokenBalance, Transaction};
+use crate::simple_types::{
+    AccountActivity, Balance, Block, Instruction, Log, Reward, TokenBalance, Transaction,
+};
 
 // ---------- column accessor helpers ----------
 
@@ -340,6 +342,61 @@ pub fn balances_from_arrow(batch: &RecordBatch) -> Result<Vec<Balance>> {
             account: account.and_then(|a| get_str(a, i)),
             pre: pre.and_then(|a| get_u64(a, i)),
             post: post.and_then(|a| get_u64(a, i)),
+        });
+    }
+    Ok(out)
+}
+
+/// Decode the merged `account_activity` table.
+///
+/// Every column except `slot` is read with `opt_col` so a response that
+/// projected the table down to a subset of columns still decodes, leaving the
+/// absent fields `None` rather than erroring.
+pub fn account_activity_from_arrow(batch: &RecordBatch) -> Result<Vec<AccountActivity>> {
+    let n = batch.num_rows();
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let slot = col::<UInt64Array>(batch, "slot")?;
+    let tx_index = opt_col::<UInt32Array>(batch, "transaction_index")?;
+    let transaction_id = opt_col::<StringArray>(batch, "transaction_id")?;
+    let account_index = opt_col::<UInt32Array>(batch, "account_index")?;
+    let account = opt_col::<StringArray>(batch, "account")?;
+    let pre_balance = opt_col::<UInt64Array>(batch, "pre_balance")?;
+    let post_balance = opt_col::<UInt64Array>(batch, "post_balance")?;
+    let is_signer = opt_col::<BooleanArray>(batch, "is_signer")?;
+    let is_writable = opt_col::<BooleanArray>(batch, "is_writable")?;
+    let is_fee_payer = opt_col::<BooleanArray>(batch, "is_fee_payer")?;
+    let from_lookup_table = opt_col::<BooleanArray>(batch, "from_lookup_table")?;
+    let mint = opt_col::<StringArray>(batch, "mint")?;
+    let owner = opt_col::<StringArray>(batch, "owner")?;
+    let token_decimals = opt_col::<UInt8Array>(batch, "token_decimals")?;
+    let pre_token_balance = opt_col::<StringArray>(batch, "pre_token_balance")?;
+    let post_token_balance = opt_col::<StringArray>(batch, "post_token_balance")?;
+    let pre_program_id = opt_col::<StringArray>(batch, "pre_program_id")?;
+    let post_program_id = opt_col::<StringArray>(batch, "post_program_id")?;
+
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push(AccountActivity {
+            slot: slot.value(i),
+            transaction_index: tx_index.and_then(|a| get_u32(a, i)),
+            transaction_id: transaction_id.and_then(|a| get_str(a, i)),
+            account_index: account_index.and_then(|a| get_u32(a, i)),
+            account: account.and_then(|a| get_str(a, i)),
+            pre_balance: pre_balance.and_then(|a| get_u64(a, i)),
+            post_balance: post_balance.and_then(|a| get_u64(a, i)),
+            is_signer: is_signer.and_then(|a| get_bool(a, i)),
+            is_writable: is_writable.and_then(|a| get_bool(a, i)),
+            is_fee_payer: is_fee_payer.and_then(|a| get_bool(a, i)),
+            from_lookup_table: from_lookup_table.and_then(|a| get_bool(a, i)),
+            mint: mint.and_then(|a| get_str(a, i)),
+            owner: owner.and_then(|a| get_str(a, i)),
+            token_decimals: token_decimals.and_then(|a| get_u8(a, i)),
+            pre_token_balance: pre_token_balance.and_then(|a| get_str(a, i)),
+            post_token_balance: post_token_balance.and_then(|a| get_str(a, i)),
+            pre_program_id: pre_program_id.and_then(|a| get_str(a, i)),
+            post_program_id: post_program_id.and_then(|a| get_str(a, i)),
         });
     }
     Ok(out)

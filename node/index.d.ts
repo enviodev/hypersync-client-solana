@@ -22,6 +22,19 @@ export declare class SolanaClient {
 }
 
 /** Filter for selecting native SOL balance changes. All non-empty fields are AND-ed. */
+/**
+ * Filter for selecting rows of the merged `account_activity` table. All
+ * non-empty fields are AND-ed. Because the table carries the native SOL and
+ * SPL token sides on one row, this replaces pairing a `BalanceSelection` with
+ * a `TokenBalanceSelection`.
+ */
+export interface AccountActivitySelection {
+  account?: Array<string>
+  mint?: Array<string>
+  owner?: Array<string>
+  programId?: Array<string>
+}
+
 export interface BalanceSelection {
   account?: Array<string>
 }
@@ -58,6 +71,7 @@ export interface FieldSelection {
   log?: Array<string>
   balance?: Array<string>
   tokenBalance?: Array<string>
+  accountActivity?: Array<string>
   reward?: Array<string>
 }
 
@@ -130,6 +144,7 @@ export interface SolanaQuery {
   logs?: Array<LogSelection>
   balances?: Array<BalanceSelection>
   tokenBalances?: Array<TokenBalanceSelection>
+  accountActivity?: Array<AccountActivitySelection>
   includeAllBlocks?: boolean
   /**
    * Return native SOL balances for the matched result set without requiring
@@ -141,6 +156,11 @@ export interface SolanaQuery {
    * `include_all_blocks`.
    */
   includeTokenBalances?: boolean
+  /**
+   * Return merged account activity for the matched result set without
+   * requiring `include_all_blocks`.
+   */
+  includeAccountActivity?: boolean
   /** Per-table field selection (which columns to return). */
   fieldSelection?: FieldSelection
   maxNumBlocks?: number
@@ -149,6 +169,7 @@ export interface SolanaQuery {
   maxNumLogs?: number
   maxNumBalances?: number
   maxNumTokenBalances?: number
+  maxNumAccountActivity?: number
 }
 
 /** Filter for selecting SPL token balance changes. All non-empty fields are AND-ed. */

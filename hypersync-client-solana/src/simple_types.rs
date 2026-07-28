@@ -111,6 +111,43 @@ pub struct TokenBalance {
     pub post_program_id: Option<String>,
 }
 
+/// One account's activity in one transaction: the native SOL change, the SPL
+/// token balance, or both.
+///
+/// This is the merged view that replaces `Balance` + `TokenBalance`. Native
+/// fields (`pre_balance` / `post_balance`) are `None` on a token-only row and
+/// the token fields are `None` on a native-only row; a row where the account
+/// had both a lamport change and a token movement carries both sides.
+///
+/// `pre_token_balance` / `post_token_balance` are decimal strings for the same
+/// reason `TokenBalance` used them: Token-2022 amounts can exceed u64::MAX.
+///
+/// `account_index` is the account's position in the transaction's resolved key
+/// list (accountKeys ++ ALT writable ++ ALT readonly); the position flags are
+/// derived from the message header and are `None` where a source could not
+/// supply them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountActivity {
+    pub slot: u64,
+    pub transaction_index: Option<u32>,
+    pub transaction_id: Option<String>,
+    pub account_index: Option<u32>,
+    pub account: Option<String>,
+    pub pre_balance: Option<u64>,
+    pub post_balance: Option<u64>,
+    pub is_signer: Option<bool>,
+    pub is_writable: Option<bool>,
+    pub is_fee_payer: Option<bool>,
+    pub from_lookup_table: Option<bool>,
+    pub mint: Option<String>,
+    pub owner: Option<String>,
+    pub token_decimals: Option<u8>,
+    pub pre_token_balance: Option<String>,
+    pub post_token_balance: Option<String>,
+    pub pre_program_id: Option<String>,
+    pub post_program_id: Option<String>,
+}
+
 /// Validator / staking reward.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reward {
@@ -133,6 +170,7 @@ pub struct SolanaResponse {
     pub logs: Vec<Log>,
     pub balances: Vec<Balance>,
     pub token_balances: Vec<TokenBalance>,
+    pub account_activity: Vec<AccountActivity>,
     pub rewards: Vec<Reward>,
     /// Raw response size in bytes (sum across all chunks, when used via `collect`).
     pub response_bytes: usize,

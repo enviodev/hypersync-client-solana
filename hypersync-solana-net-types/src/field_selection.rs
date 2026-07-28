@@ -19,6 +19,8 @@ pub struct SolanaFieldSelection {
     #[serde(default)]
     pub token_balance: Vec<TokenBalanceField>,
     #[serde(default)]
+    pub account_activity: Vec<AccountActivityField>,
+    #[serde(default)]
     pub reward: Vec<RewardField>,
 }
 
@@ -59,8 +61,26 @@ impl SolanaFieldSelection {
             log: physical(&[]),
             balance: physical(&[]),
             token_balance: physical(&[]),
+            account_activity: physical(&[]),
             reward: physical(&[]),
         }
+    }
+}
+
+/// Map a field's wire name to the parquet column it selects.
+///
+/// The Wave 2 renames gave two instruction fields clearer wire names than the
+/// stored columns they read (`executing_account` -> `program_id`,
+/// `account_arguments` -> `accounts`); every other field matches its column
+/// name. Servers must resolve through this when turning a field selection into
+/// a column projection, or a renamed field silently projects to nothing.
+/// Fields with no physical column (the derived ones) map to themselves and
+/// simply will not be found in a parquet schema.
+pub fn physical_column_name(wire: &str) -> &str {
+    match wire {
+        "executing_account" => "program_id",
+        "account_arguments" => "accounts",
+        other => other,
     }
 }
 
@@ -245,6 +265,47 @@ pub enum TokenBalanceField {
     PostProgramId,
 }
 
+/// Columns of the unified `account_activity` table: one row per
+/// (transaction, account), carrying the native SOL change, the SPL token
+/// balance, or both. Variant names must stay spelled exactly like the parquet
+/// column names (strum derives snake_case); the schema-coverage test locks
+/// this enum to `hypersync_solana_schema::account_activity()`.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Display,
+    EnumString,
+    VariantArray,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum AccountActivityField {
+    Slot,
+    TransactionIndex,
+    TransactionId,
+    AccountIndex,
+    Account,
+    PreBalance,
+    PostBalance,
+    IsSigner,
+    IsWritable,
+    IsFeePayer,
+    FromLookupTable,
+    Mint,
+    Owner,
+    TokenDecimals,
+    PreTokenBalance,
+    PostTokenBalance,
+    PreProgramId,
+    PostProgramId,
+}
+
 #[derive(
     Debug,
     Clone,
@@ -282,16 +343,6 @@ mod schema_coverage {
 
     use super::*;
 
-    /// Wire name -> physical column name for the Wave 2 renames. Everything
-    /// else matches by its snake_case name.
-    fn physical_name(wire: String) -> String {
-        match wire.as_str() {
-            "executing_account" => "program_id".to_owned(),
-            "account_arguments" => "accounts".to_owned(),
-            other => other.to_owned(),
-        }
-    }
-
     fn column_names(schema: arrow::datatypes::SchemaRef) -> Vec<String> {
         schema.fields().iter().map(|f| f.name().clone()).collect()
     }
@@ -303,7 +354,7 @@ mod schema_coverage {
         let columns = column_names(schema);
         let mapped: Vec<String> = selected
             .iter()
-            .map(|f| physical_name(f.to_string()))
+            .map(|f| physical_column_name(&f.to_string()).to_owned())
             .collect();
         assert_eq!(
             mapped, columns,
@@ -314,7 +365,7 @@ mod schema_coverage {
         // physical" without updating the classification).
         for v in T::VARIANTS {
             if !selected.contains(v) {
-                let wire = physical_name(v.to_string());
+                let wire = physical_column_name(&v.to_string()).to_owned();
                 assert!(
                     !columns.contains(&wire),
                     "{table}: variant `{v}` is classified derived but `{wire}` is a physical column"
@@ -343,6 +394,11 @@ mod schema_coverage {
             "token_balance",
             &sel.token_balance,
             hypersync_solana_schema::token_balance(),
+        );
+        assert_table(
+            "account_activity",
+            &sel.account_activity,
+            hypersync_solana_schema::account_activity(),
         );
         assert_table("reward", &sel.reward, hypersync_solana_schema::reward());
     }
