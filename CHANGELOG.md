@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.1] - 2026-07-28
+
+Release candidate. Breaking: the `balances` and `token_balances` tables are
+removed and everything they carried is served from `account_activity`.
+
+### Removed
+
+- `schema`: `balance()` and `token_balance()`, their `TABLE_NAMES` entries and
+  `schema_for_table` arms. `TABLE_NAMES` is now 6 tables. `table-registry`
+  follows automatically.
+- `net-types`: `BalanceField`, `TokenBalanceField`, `BalanceSelection`,
+  `TokenBalanceSelection`, the `balances` / `token_balances` selection arrays,
+  `include_balances` / `include_token_balances`, and `max_num_balances` /
+  `max_num_token_balances`.
+- `client`: `Balance`, `TokenBalance`, `balances_from_arrow`,
+  `token_balances_from_arrow`, the two decode arms and the two
+  `QueryResponse` fields.
+- `node`: the two selections, their field-selection entries, include flags and
+  `maxNum` caps, plus their `index.d.ts` declarations.
+
+### Added
+
+- `net-types`: `AccountActivityField` (18 variants, locked to the parquet
+  schema by this crate's coverage test), `AccountActivitySelection`
+  (`account` / `mint` / `owner` / `program_id`), `include_account_activity`
+  and `max_num_account_activity`.
+- `net-types`: `physical_column_name` is now public. Two Wave 2 field renames
+  read a column spelled differently from the field (`executing_account` ->
+  `program_id`, `account_arguments` -> `accounts`), and that mapping previously
+  existed only inside this crate's tests, so a server turning a field selection
+  into a column projection had no correct way to do it.
+- `client`: `AccountActivity`, `QueryResponse.account_activity`,
+  `account_activity_from_arrow` and the `"account_activity"` decode arm. Every
+  column but `slot` is read optionally, so a projected response decodes with
+  the absent fields `None`.
+- `node`: `AccountActivitySelection`, `fieldSelection.accountActivity`,
+  `accountActivity`, `includeAccountActivity`, `maxNumAccountActivity`.
+
+### Migration
+
+- `balances: [{account: [A]}]` -> `account_activity: [{account: [A]}]`.
+- `token_balances: [{mint: [M]}]` -> `account_activity: [{mint: [M]}]`. A
+  non-empty `mint` / `owner` / `program_id` filter selects token rows, since
+  native-only rows leave those columns null.
+- A single `account_activity` selection expresses what previously needed a
+  `balances` selection and a `token_balances` selection joined together.
+  Fields within one selection are AND-ed, so "everything for wallet W" is two
+  selections: `[{account: [W]}, {owner: [W]}]` - on a native row `account` is
+  the wallet, on a token row it is the token account.
+- Response field `balances` / `token_balances` -> `account_activity`. Native
+  columns (`pre_balance` / `post_balance`) are null on token-only rows and the
+  token columns are null on native-only rows; a row where an account had both
+  a lamport change and a token movement carries both sides.
+- Renamed columns: `pre` / `post` -> `pre_balance` / `post_balance`,
+  `pre_amount` / `post_amount` -> `pre_token_balance` / `post_token_balance`.
+- New columns with no legacy equivalent: `transaction_id`, `account_index`,
+  `is_signer`, `is_writable`, `is_fee_payer`, `from_lookup_table`,
+  `token_decimals`.
+- Note for servers: `account_activity` carries roughly 4x the rows of
+  `balances`, so with the same `max_num_*` cap a range query pages more often.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added
