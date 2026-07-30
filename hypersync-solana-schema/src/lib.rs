@@ -117,6 +117,15 @@ pub fn account_activity() -> SchemaRef {
         Field::new("account_index", DataType::UInt32, true),
         Field::new("account", DataType::Utf8, true),
         // Native SOL (null when no native change on this account in this tx).
+        //
+        // Deliberately NOT shared with pre/post_token_balance below. The native
+        // and token sides are independent axes, not two encodings of one value:
+        // a single row commonly carries both, since a token account also holds
+        // lamports. Wrapped SOL is the clearest case - lamports equal the token
+        // amount plus the rent-exempt reserve, so the two differ by a constant
+        // and both are needed. Even where they coincide the units differ:
+        // lamports are always 1e-9 SOL, whereas a token amount is in raw base
+        // units scaled by `token_decimals` on the same row.
         Field::new("pre_balance", DataType::UInt64, true),
         Field::new("post_balance", DataType::UInt64, true),
         // Header-derived flags (null only if not derivable).
@@ -128,7 +137,9 @@ pub fn account_activity() -> SchemaRef {
         Field::new("mint", DataType::Utf8, true),
         Field::new("owner", DataType::Utf8, true),
         Field::new("token_decimals", DataType::UInt8, true),
-        // Raw u64 as decimal string (Token-2022 base units can exceed u64).
+        // Raw base units, carried verbatim as the decimal string the source
+        // reported, so no parse step can fail or silently coerce. See the note
+        // on pre_balance for why this is a separate column, not a reuse of it.
         Field::new("pre_token_balance", DataType::Utf8, true),
         Field::new("post_token_balance", DataType::Utf8, true),
         Field::new("pre_program_id", DataType::Utf8, true),
