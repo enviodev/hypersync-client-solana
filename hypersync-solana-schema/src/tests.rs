@@ -27,7 +27,7 @@ fn test_block_schema_fields() {
 
 #[test]
 fn test_instruction_schema_has_discriminators() {
-    let schema = instruction();
+    let schema = instruction_call();
     assert!(schema.field_with_name("d1").is_ok());
     assert!(schema.field_with_name("d2").is_ok());
     assert!(schema.field_with_name("d4").is_ok());
@@ -35,8 +35,43 @@ fn test_instruction_schema_has_discriminators() {
 }
 
 #[test]
+fn test_instruction_call_wire_aligned_columns() {
+    let schema = instruction_call();
+    // Physical names match wire names since the Wave 2 API lock.
+    for name in ["executing_account", "account_arguments", "tx_success"] {
+        assert!(schema.field_with_name(name).is_ok(), "missing {name}");
+    }
+    for legacy in ["program_id", "accounts", "is_committed"] {
+        assert!(
+            schema.field_with_name(legacy).is_err(),
+            "legacy column {legacy} should be gone"
+        );
+    }
+    // Per-invocation error / compute units (SQD-derived completeness).
+    assert_eq!(
+        schema.field_with_name("error").unwrap().data_type(),
+        &DataType::Utf8
+    );
+    assert_eq!(
+        schema
+            .field_with_name("compute_units_consumed")
+            .unwrap()
+            .data_type(),
+        &DataType::UInt64
+    );
+}
+
+#[test]
+fn test_transaction_has_dropped_log_messages() {
+    let schema = transaction();
+    let f = schema.field_with_name("has_dropped_log_messages").unwrap();
+    assert_eq!(f.data_type(), &DataType::Boolean);
+    assert!(f.is_nullable());
+}
+
+#[test]
 fn test_instruction_schema_has_account_positions() {
-    let schema = instruction();
+    let schema = instruction_call();
     for i in 0..10 {
         let name = format!("a{}", i);
         assert!(
@@ -98,7 +133,20 @@ fn test_account_activity_columns() {
             "flag {name} should be Boolean"
         );
     }
-    // Token columns. Balances are decimal strings for Token-2022 range.
+    // Token columns. Balances are decimal strings, carried verbatim from the
+    // source (raw SPL amounts are u64 on-chain; Utf8 is for verbatim carry,
+    // not range).
+    for name in ["pre_owner", "post_owner"] {
+        assert_eq!(
+            schema.field_with_name(name).unwrap().data_type(),
+            &DataType::Utf8,
+            "{name} should be Utf8"
+        );
+    }
+    assert!(
+        schema.field_with_name("owner").is_err(),
+        "collapsed owner column should be gone"
+    );
     assert_eq!(
         schema
             .field_with_name("token_decimals")

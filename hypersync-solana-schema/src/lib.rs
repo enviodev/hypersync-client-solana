@@ -47,10 +47,16 @@ pub fn transaction() -> SchemaRef {
             DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
             true,
         ),
+        // True when the validator truncated this transaction's log output.
+        // SQD serves the flag directly; RPC/Firehose/Yellowstone derive it
+        // from the "Log truncated" sentinel line. Null = source could not say.
+        Field::new("has_dropped_log_messages", DataType::Boolean, true),
     ]))
 }
 
-pub fn instruction() -> SchemaRef {
+/// One row per runtime program invocation (outer or inner). Renamed from
+/// `instructions` in the Wave 2 API lock; physical names match wire names.
+pub fn instruction_call() -> SchemaRef {
     Arc::new(Schema::new(vec![
         Field::new("slot", DataType::UInt64, false),
         Field::new("transaction_index", DataType::UInt32, false),
@@ -59,9 +65,9 @@ pub fn instruction() -> SchemaRef {
             DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
             false,
         ),
-        Field::new("program_id", DataType::Utf8, false),
+        Field::new("executing_account", DataType::Utf8, false),
         Field::new(
-            "accounts",
+            "account_arguments",
             DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
             true,
         ),
@@ -81,7 +87,18 @@ pub fn instruction() -> SchemaRef {
         Field::new("a8", DataType::Utf8, true),
         Field::new("a9", DataType::Utf8, true),
         Field::new("is_inner", DataType::Boolean, false),
-        Field::new("is_committed", DataType::Boolean, false),
+        // Success of the PARENT transaction, uniformly for every instruction
+        // of that tx (Solana metadata only records instructions that ran).
+        Field::new("tx_success", DataType::Boolean, false),
+        // Per-invocation failure reason, e.g. "custom program error: 0x1".
+        // SQD serves it directly; RPC/Firehose derive it from the
+        // "Program <id> failed: <err>" log line. Null = no error recorded.
+        Field::new("error", DataType::Utf8, true),
+        // Per-invocation compute units. SQD serves it directly; RPC/Firehose
+        // derive it from the "Program <id> consumed <n> of <m> compute units"
+        // log line. Null when the source did not record it (common for
+        // top-level invocations of builtin programs, or truncated logs).
+        Field::new("compute_units_consumed", DataType::UInt64, true),
     ]))
 }
 
@@ -135,7 +152,12 @@ pub fn account_activity() -> SchemaRef {
         Field::new("from_lookup_table", DataType::Boolean, true),
         // SPL token (null on non-token rows).
         Field::new("mint", DataType::Utf8, true),
-        Field::new("owner", DataType::Utf8, true),
+        // Token-account owner before/after the tx, kept separate so an
+        // in-transaction SetAuthority(AccountOwner) change is visible.
+        // pre_owner null = account opened during the tx; post_owner null =
+        // closed during the tx (mirrors pre/post_program_id).
+        Field::new("pre_owner", DataType::Utf8, true),
+        Field::new("post_owner", DataType::Utf8, true),
         Field::new("token_decimals", DataType::UInt8, true),
         // Raw base units, carried verbatim as the decimal string the source
         // reported, so no parse step can fail or silently coerce. See the note
@@ -162,7 +184,7 @@ pub fn reward() -> SchemaRef {
 pub const TABLE_NAMES: &[&str] = &[
     "blocks",
     "transactions",
-    "instructions",
+    "instruction_calls",
     "logs",
     "account_activity",
     "rewards",
@@ -173,7 +195,7 @@ pub fn schema_for_table(table: &str) -> Option<SchemaRef> {
     match table {
         "blocks" => Some(block()),
         "transactions" => Some(transaction()),
-        "instructions" => Some(instruction()),
+        "instruction_calls" => Some(instruction_call()),
         "logs" => Some(log()),
         "account_activity" => Some(account_activity()),
         "rewards" => Some(reward()),
