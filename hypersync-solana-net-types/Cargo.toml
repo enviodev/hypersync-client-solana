@@ -12,6 +12,7 @@ keywords = ["solana", "hypersync", "envio"]
 categories = ["api-bindings"]
 
 [dependencies]
+bs58 = "0.5"
 serde = { version = "1", features = ["derive"] }
 schemars = "1.2.0"
 strum = "0.27.1"

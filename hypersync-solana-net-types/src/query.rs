@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::types::{Address, LogKind, Signature};
+
 /// Top-level Solana HyperSync query.
 ///
 /// Returns block bundles matching the given filters within [from_slot, to_slot).
@@ -55,12 +57,6 @@ pub struct SolanaQuery {
     /// them does NOT force every block in the range to be returned.
     #[serde(default)]
     pub account_activity: Vec<AccountActivitySelection>,
-    /// When true, return `account_activity` for the matched result set without
-    /// requiring `include_all_blocks`. With no other filters this returns all
-    /// activity in range; combined with a filtered table it returns the
-    /// activity of the matched transactions.
-    #[serde(default)]
-    pub include_account_activity: bool,
     /// Maximum number of account activity rows to return before stopping.
     #[serde(default)]
     pub max_num_account_activity: Option<usize>,
@@ -76,7 +72,7 @@ pub struct InstructionSelection {
     /// one of these pubkeys. Renamed from `program_id`; the legacy key is still
     /// accepted on input via a serde alias.
     #[serde(default, alias = "program_id")]
-    pub executing_account: Vec<String>,
+    pub executing_account: Vec<Address>,
 
     /// Match first 1 byte of instruction data (hex-encoded, e.g. "e8").
     #[serde(default)]
@@ -93,34 +89,34 @@ pub struct InstructionSelection {
 
     /// Match account at position 0.
     #[serde(default)]
-    pub a0: Vec<String>,
+    pub a0: Vec<Address>,
     /// Match account at position 1.
     #[serde(default)]
-    pub a1: Vec<String>,
+    pub a1: Vec<Address>,
     /// Match account at position 2.
     #[serde(default)]
-    pub a2: Vec<String>,
+    pub a2: Vec<Address>,
     /// Match account at position 3.
     #[serde(default)]
-    pub a3: Vec<String>,
+    pub a3: Vec<Address>,
     /// Match account at position 4.
     #[serde(default)]
-    pub a4: Vec<String>,
+    pub a4: Vec<Address>,
     /// Match account at position 5.
     #[serde(default)]
-    pub a5: Vec<String>,
+    pub a5: Vec<Address>,
     /// Match account at position 6.
     #[serde(default)]
-    pub a6: Vec<String>,
+    pub a6: Vec<Address>,
     /// Match account at position 7.
     #[serde(default)]
-    pub a7: Vec<String>,
+    pub a7: Vec<Address>,
     /// Match account at position 8.
     #[serde(default)]
-    pub a8: Vec<String>,
+    pub a8: Vec<Address>,
     /// Match account at position 9.
     #[serde(default)]
-    pub a9: Vec<String>,
+    pub a9: Vec<Address>,
 
     /// Filter on inner-instruction status:
     /// - None / absent: match both outer and inner
@@ -129,15 +125,24 @@ pub struct InstructionSelection {
     #[serde(default)]
     pub is_inner: Option<bool>,
 
-    /// Filter on the commit status of the parent transaction:
-    /// - None / absent: match instructions of both committed and failed txs
+    /// Filter on the success of the PARENT transaction:
+    /// - None / absent: match instructions of both successful and failed txs
     /// - Some(true): only instructions of successful transactions
     /// - Some(false): only instructions of failed transactions
     ///
-    /// Failed transactions still land on chain and their instructions are
-    /// served, so consumers that count effects must set this to `Some(true)`.
-    #[serde(default)]
-    pub is_committed: Option<bool>,
+    /// `tx_success` says nothing about the individual instruction: Solana
+    /// metadata only records instructions that actually executed, so a failed
+    /// transaction's rows are precisely the instructions that ran before the
+    /// failure point, and every one of them has `tx_success = false`. Failed
+    /// transactions land on chain and are served by default; consumers that
+    /// count effects (transfers, mints, state changes) must filter
+    /// `tx_success: true`, because instructions of failed transactions had
+    /// their state changes rolled back.
+    ///
+    /// Renamed from `is_committed`; the legacy key is still accepted on input
+    /// via a serde alias.
+    #[serde(default, alias = "is_committed")]
+    pub tx_success: Option<bool>,
 }
 
 impl InstructionSelection {
@@ -158,7 +163,7 @@ impl InstructionSelection {
             && self.a8.is_empty()
             && self.a9.is_empty()
             && self.is_inner.is_none()
-            && self.is_committed.is_none()
+            && self.tx_success.is_none()
     }
 }
 
@@ -167,11 +172,11 @@ impl InstructionSelection {
 pub struct TransactionSelection {
     /// Match transactions whose fee_payer is one of these pubkeys.
     #[serde(default)]
-    pub fee_payer: Vec<String>,
+    pub fee_payer: Vec<Address>,
     /// Match transactions by transaction id (`signatures[0]`, base58). This is the
     /// canonical Solana transaction signature and acts as the transaction's id.
     #[serde(default)]
-    pub transaction_id: Vec<String>,
+    pub transaction_id: Vec<Signature>,
     /// Match transactions by their `transaction_index` (position within the block).
     #[serde(default)]
     pub transaction_index: Vec<u64>,
@@ -197,10 +202,12 @@ impl TransactionSelection {
 pub struct LogSelection {
     /// Match logs whose program_id is one of these pubkeys.
     #[serde(default)]
-    pub program_id: Vec<String>,
-    /// Match logs whose kind is one of these values (e.g. "log", "data").
+    pub program_id: Vec<Address>,
+    /// Match logs whose kind is one of these values. Note SQD-ingested and
+    /// default RPC-ingested ranges only carry `log` / `data` / `other` rows
+    /// (see [`LogKind`]).
     #[serde(default)]
-    pub kind: Vec<String>,
+    pub kind: Vec<LogKind>,
 }
 
 impl LogSelection {
@@ -236,21 +243,23 @@ pub struct AccountActivitySelection {
     /// Match by account address. For token rows this is the token account
     /// (the ATA / raw token account), matching `token_balances.account`.
     #[serde(default)]
-    pub account: Vec<String>,
+    pub account: Vec<Address>,
     /// Match by the transaction's base58 `signatures[0]`.
     #[serde(default)]
-    pub transaction_id: Vec<String>,
+    pub transaction_id: Vec<Signature>,
     /// Match by mint address. Only token rows carry a mint, so a non-empty
     /// mint filter restricts the result to token activity.
     #[serde(default)]
-    pub mint: Vec<String>,
-    /// Match by owner (wallet) address.
+    pub mint: Vec<Address>,
+    /// Match by owner (wallet) address. Matches either the pre or the post
+    /// owner (the stored column is split so an in-transaction
+    /// SetAuthority(AccountOwner) change stays visible).
     #[serde(default)]
-    pub owner: Vec<String>,
+    pub owner: Vec<Address>,
     /// Match by token program id (classic SPL Token vs Token-2022).
     /// Matches either the post or the pre program id.
     #[serde(default)]
-    pub program_id: Vec<String>,
+    pub program_id: Vec<Address>,
     /// Match rows whose account is a transaction signer.
     ///
     /// The position flags are derived from the message header, so a source
@@ -301,6 +310,18 @@ mod tests {
     use super::*;
     use crate::field_selection::BlockField;
 
+    /// A real 32-byte pubkey for filter round-trips (the SPL Token program).
+    const PROG: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+    fn addr(s: &str) -> Address {
+        s.parse().unwrap()
+    }
+
+    /// A valid 64-byte signature in base58.
+    fn sig() -> String {
+        Signature([7u8; 64]).to_string()
+    }
+
     #[test]
     fn field_selection_canonical_key_deserializes() {
         let q: SolanaQuery =
@@ -326,13 +347,28 @@ mod tests {
     #[test]
     fn transaction_id_and_index_filters_deserialize() {
         // Dmitry Wave 2 #1/#2: filter transactions by their signature id and by index.
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"transactions":[{"transaction_id":["5xY..."],"transaction_index":[3,7]}]}"#,
-        )
+        let s = sig();
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"transactions":[{{"transaction_id":["{s}"],"transaction_index":[3,7]}}]}}"#,
+        ))
         .unwrap();
-        assert_eq!(q.transactions[0].transaction_id, vec!["5xY...".to_string()]);
+        assert_eq!(
+            q.transactions[0].transaction_id,
+            vec![s.parse::<Signature>().unwrap()]
+        );
         assert_eq!(q.transactions[0].transaction_index, vec![3, 7]);
         assert!(!q.transactions[0].is_empty());
+    }
+
+    /// The byte newtypes reject malformed filter values loudly instead of
+    /// letting a typo'd pubkey silently match nothing.
+    #[test]
+    fn malformed_base58_filter_value_is_an_error() {
+        let err = serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["not-base58!"]}]}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("base58"), "{err}");
     }
 
     #[test]
@@ -390,14 +426,11 @@ mod tests {
     /// makes: the envelope catches removed tables, selections stay lenient.
     #[test]
     fn unknown_fields_inside_a_selection_are_tolerated() {
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instructions":[{"program_id":["p"],"include_transaction":true,"include_logs":true}]}"#,
-        )
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instructions":[{{"program_id":["{PROG}"],"include_transaction":true,"include_logs":true}}]}}"#,
+        ))
         .unwrap();
-        assert_eq!(
-            q.instruction_calls[0].executing_account,
-            vec!["p".to_string()]
-        );
+        assert_eq!(q.instruction_calls[0].executing_account, vec![addr(PROG)]);
 
         // A typo'd filter field is dropped, so the selection matches on the
         // fields it did understand.
@@ -410,14 +443,11 @@ mod tests {
     /// deny_unknown_fields does not reject them.
     #[test]
     fn legacy_aliases_still_deserialize_under_strictness() {
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instructions":[{"program_id":["p"]}],"field_selection":{"instruction":["slot"]}}"#,
-        )
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instructions":[{{"program_id":["{PROG}"]}}],"field_selection":{{"instruction":["slot"]}}}}"#,
+        ))
         .unwrap();
-        assert_eq!(
-            q.instruction_calls[0].executing_account,
-            vec!["p".to_string()]
-        );
+        assert_eq!(q.instruction_calls[0].executing_account, vec![addr(PROG)]);
         assert_eq!(
             q.field_selection.instruction_call,
             vec![crate::field_selection::InstructionField::Slot]
@@ -426,65 +456,102 @@ mod tests {
 
     #[test]
     fn account_activity_kind_and_flag_filters_deserialize() {
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"account_activity":[{"kind":["native"],"is_fee_payer":true,"transaction_id":["sig"]}]}"#,
-        )
+        let s = sig();
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"account_activity":[{{"kind":["native"],"is_fee_payer":true,"transaction_id":["{s}"]}}]}}"#,
+        ))
         .unwrap();
         let sel = &q.account_activity[0];
         assert_eq!(sel.kind, vec![ActivityKind::Native]);
         assert_eq!(sel.is_fee_payer, Some(true));
-        assert_eq!(sel.transaction_id, vec!["sig".to_string()]);
+        assert_eq!(sel.transaction_id, vec![s.parse::<Signature>().unwrap()]);
         assert!(!sel.is_empty());
     }
 
     #[test]
-    fn is_committed_filter_deserializes() {
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["p"],"is_committed":true}]}"#,
-        )
+    fn tx_success_filter_new_and_legacy_names() {
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instruction_calls":[{{"executing_account":["{PROG}"],"tx_success":true}}]}}"#,
+        ))
         .unwrap();
-        assert_eq!(q.instruction_calls[0].is_committed, Some(true));
+        assert_eq!(q.instruction_calls[0].tx_success, Some(true));
 
+        // Legacy `is_committed` key still deserializes into tx_success.
         let q: SolanaQuery =
             serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"is_committed":false}]}"#)
                 .unwrap();
-        assert_eq!(q.instruction_calls[0].is_committed, Some(false));
+        assert_eq!(q.instruction_calls[0].tx_success, Some(false));
+
+        // Serialization emits the new name only.
+        let json = serde_json::to_string(&q).unwrap();
+        assert!(json.contains("tx_success"));
+        assert!(!json.contains("is_committed"));
     }
 
     #[test]
-    fn is_committed_absent_is_none() {
+    fn tx_success_absent_is_none() {
         // Absent must stay tri-state None (match both) so pre-existing queries
         // keep their current behavior.
         let q: SolanaQuery =
             serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"is_inner":false}]}"#)
                 .unwrap();
-        assert_eq!(q.instruction_calls[0].is_committed, None);
+        assert_eq!(q.instruction_calls[0].tx_success, None);
     }
 
     #[test]
-    fn is_committed_alone_is_not_an_empty_selection() {
+    fn tx_success_alone_is_not_an_empty_selection() {
         // The server treats an empty selection as match-all and short-circuits
-        // the row filter, so a selection carrying only `is_committed` must not
+        // the row filter, so a selection carrying only `tx_success` must not
         // report empty or it would return every instruction instead of none.
         let q: SolanaQuery =
-            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"is_committed":false}]}"#)
+            serde_json::from_str(r#"{"from_slot":0,"instruction_calls":[{"tx_success":false}]}"#)
                 .unwrap();
         assert!(!q.instruction_calls[0].is_empty());
         assert!(InstructionSelection::default().is_empty());
     }
 
     #[test]
+    fn include_account_activity_is_rejected() {
+        // The flag is gone: `account_activity: [{}]` expresses all-in-range,
+        // and selecting the table in field_selection hydrates it. The strict
+        // envelope makes the removal loud rather than silently ignored.
+        let err = serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"include_account_activity":true}"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("include_account_activity"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn log_kind_filter_is_typed() {
+        let q: SolanaQuery =
+            serde_json::from_str(r#"{"from_slot":0,"logs":[{"kind":["data","consumed"]}]}"#)
+                .unwrap();
+        assert_eq!(q.logs[0].kind, vec![LogKind::Data, LogKind::Consumed]);
+        // An unknown kind in a FILTER is an error (unlike response decode,
+        // which folds unknowns into Other).
+        assert!(serde_json::from_str::<SolanaQuery>(
+            r#"{"from_slot":0,"logs":[{"kind":["bogus"]}]}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn instruction_calls_key_and_legacy_alias() {
         // New canonical key + new executing_account filter name.
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["p"]}]}"#,
-        )
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instruction_calls":[{{"executing_account":["{PROG}"]}}]}}"#,
+        ))
         .unwrap();
         assert_eq!(q.instruction_calls.len(), 1);
         // Legacy `instructions` key still deserializes into the same field.
-        let q: SolanaQuery =
-            serde_json::from_str(r#"{"from_slot":0,"instructions":[{"program_id":["p"]}]}"#)
-                .unwrap();
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instructions":[{{"program_id":["{PROG}"]}}]}}"#
+        ))
+        .unwrap();
         assert_eq!(q.instruction_calls.len(), 1);
         // Serialization emits the new key only.
         let json = serde_json::to_string(&q).unwrap();
@@ -516,23 +583,17 @@ mod tests {
     #[test]
     fn executing_account_filter_new_and_legacy() {
         // New filter name.
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instruction_calls":[{"executing_account":["prog"]}]}"#,
-        )
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instruction_calls":[{{"executing_account":["{PROG}"]}}]}}"#,
+        ))
         .unwrap();
-        assert_eq!(
-            q.instruction_calls[0].executing_account,
-            vec!["prog".to_string()]
-        );
+        assert_eq!(q.instruction_calls[0].executing_account, vec![addr(PROG)]);
         // Legacy `program_id` still maps to executing_account.
-        let q: SolanaQuery = serde_json::from_str(
-            r#"{"from_slot":0,"instruction_calls":[{"program_id":["prog"]}]}"#,
-        )
+        let q: SolanaQuery = serde_json::from_str(&format!(
+            r#"{{"from_slot":0,"instruction_calls":[{{"program_id":["{PROG}"]}}]}}"#,
+        ))
         .unwrap();
-        assert_eq!(
-            q.instruction_calls[0].executing_account,
-            vec!["prog".to_string()]
-        );
+        assert_eq!(q.instruction_calls[0].executing_account, vec![addr(PROG)]);
         // Serialization emits the new name.
         let json = serde_json::to_string(&q).unwrap();
         assert!(json.contains("executing_account"));

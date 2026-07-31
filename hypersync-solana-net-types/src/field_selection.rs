@@ -29,6 +29,8 @@ const DERIVED_INSTRUCTION_FIELDS: &[InstructionField] = &[
     InstructionField::ExecutingAccountIndex,
     InstructionField::AccountIndexArguments,
 ];
+const DERIVED_ACCOUNT_ACTIVITY_FIELDS: &[AccountActivityField] =
+    &[AccountActivityField::TokenState];
 
 impl SolanaFieldSelection {
     /// Selection naming every physical column of every table, in
@@ -36,10 +38,9 @@ impl SolanaFieldSelection {
     /// derived. This is the selection a replication client (e.g. a
     /// hypersync skar-pull follower) needs so no column is projected away.
     ///
-    /// Derived wire fields ([`DERIVED_TRANSACTION_FIELDS`],
-    /// [`DERIVED_INSTRUCTION_FIELDS`]) are excluded; the Wave 2 renamed
-    /// fields (`ExecutingAccount`, `AccountArguments`) select the physical
-    /// `program_id` / `accounts` columns. The variant-to-column mapping is
+    /// Derived wire fields (the `DERIVED_*` consts) are excluded. Since the
+    /// Wave 2 API lock, physical parquet names match wire names exactly, so a
+    /// field's wire name IS its column name. The variant-to-column mapping is
     /// locked to `hypersync-solana-schema` by this crate's tests, so a field
     /// added to an enum lands here automatically unless it is explicitly
     /// classified as derived.
@@ -56,26 +57,9 @@ impl SolanaFieldSelection {
             transaction: physical(DERIVED_TRANSACTION_FIELDS),
             instruction_call: physical(DERIVED_INSTRUCTION_FIELDS),
             log: physical(&[]),
-            account_activity: physical(&[]),
+            account_activity: physical(DERIVED_ACCOUNT_ACTIVITY_FIELDS),
             reward: physical(&[]),
         }
-    }
-}
-
-/// Map a field's wire name to the parquet column it selects.
-///
-/// The Wave 2 renames gave two instruction fields clearer wire names than the
-/// stored columns they read (`executing_account` -> `program_id`,
-/// `account_arguments` -> `accounts`); every other field matches its column
-/// name. Servers must resolve through this when turning a field selection into
-/// a column projection, or a renamed field silently projects to nothing.
-/// Fields with no physical column (the derived ones) map to themselves and
-/// simply will not be found in a parquet schema.
-pub fn physical_column_name(wire: &str) -> &str {
-    match wire {
-        "executing_account" => "program_id",
-        "account_arguments" => "accounts",
-        other => other,
     }
 }
 
@@ -134,6 +118,8 @@ pub enum TransactionField {
     Version,
     LoadedAddressesWritable,
     LoadedAddressesReadonly,
+    /// True when the validator truncated this transaction's log output.
+    HasDroppedLogMessages,
 }
 
 #[derive(
@@ -183,7 +169,14 @@ pub enum InstructionField {
     A8,
     A9,
     IsInner,
-    IsCommitted,
+    /// Success of the parent transaction. Renamed from `is_committed`; the
+    /// legacy wire name is still accepted on input via a serde alias.
+    #[serde(alias = "is_committed")]
+    TxSuccess,
+    /// Per-invocation failure reason (e.g. "custom program error: 0x1").
+    Error,
+    /// Per-invocation compute units, when the source recorded them.
+    ComputeUnitsConsumed,
 }
 
 #[derive(
@@ -243,12 +236,19 @@ pub enum AccountActivityField {
     IsFeePayer,
     FromLookupTable,
     Mint,
-    Owner,
+    /// Token-account owner before the tx (split from the old collapsed
+    /// `owner` so an in-transaction owner change is visible).
+    PreOwner,
+    /// Token-account owner after the tx.
+    PostOwner,
     TokenDecimals,
     PreTokenBalance,
     PostTokenBalance,
     PreProgramId,
     PostProgramId,
+    /// Derived at serving time: authoritative token-side state of the row
+    /// (`not_a_token` / `opened` / `closed` / `persisted`).
+    TokenState,
 }
 
 #[derive(
@@ -297,10 +297,9 @@ mod schema_coverage {
         T: VariantArray + Display + Copy + PartialEq,
     {
         let columns = column_names(schema);
-        let mapped: Vec<String> = selected
-            .iter()
-            .map(|f| physical_column_name(&f.to_string()).to_owned())
-            .collect();
+        // Physical names match wire names since the Wave 2 API lock, so a
+        // field's wire name is exactly its column name.
+        let mapped: Vec<String> = selected.iter().map(|f| f.to_string()).collect();
         assert_eq!(
             mapped, columns,
             "{table}: full_physical must name every physical column in schema order"
@@ -310,7 +309,7 @@ mod schema_coverage {
         // physical" without updating the classification).
         for v in T::VARIANTS {
             if !selected.contains(v) {
-                let wire = physical_column_name(&v.to_string()).to_owned();
+                let wire = v.to_string();
                 assert!(
                     !columns.contains(&wire),
                     "{table}: variant `{v}` is classified derived but `{wire}` is a physical column"
@@ -329,9 +328,9 @@ mod schema_coverage {
             hypersync_solana_schema::transaction(),
         );
         assert_table(
-            "instruction",
+            "instruction_call",
             &sel.instruction_call,
-            hypersync_solana_schema::instruction(),
+            hypersync_solana_schema::instruction_call(),
         );
         assert_table("log", &sel.log, hypersync_solana_schema::log());
         assert_table(

@@ -820,6 +820,7 @@ name = "hypersync-solana-net-types"
 version = "0.2.0-rc.3"
 dependencies = [
  "arrow",
+ "bs58",
  "hypersync-solana-schema",
  "schemars",
  "serde",
