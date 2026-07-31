@@ -177,7 +177,10 @@ pub struct TransactionSelection {
     /// canonical Solana transaction signature and acts as the transaction's id.
     #[serde(default)]
     pub transaction_id: Vec<Signature>,
-    /// Match transactions by their `transaction_index` (position within the block).
+    /// Match transactions by their `transaction_index`: a dense `0..n` rank
+    /// over the stored (non-vote) transactions of the slot, in block order.
+    /// Not the original block position: votes are excluded at ingest and every
+    /// source is renumbered to this same key.
     #[serde(default)]
     pub transaction_index: Vec<u64>,
     /// If set, only match transactions with this success status.

@@ -244,8 +244,9 @@ pub struct SolanaResponse {
     pub logs: Vec<Log>,
     pub account_activity: Vec<AccountActivity>,
     pub rewards: Vec<Reward>,
-    /// Reorg guard for the scanned range, when the server produced one. On a
-    /// paginated `collect`, this is the guard of the LAST page.
+    /// Reorg guard describing the server's in-memory head window, when the
+    /// server has one to report. On a paginated `collect`, this is the guard
+    /// of the LAST page.
     pub rollback_guard: Option<RollbackGuard>,
     /// Raw response size in bytes (sum across all chunks, when used via `collect`).
     pub response_bytes: usize,

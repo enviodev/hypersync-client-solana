@@ -142,8 +142,10 @@ base58_newtype!(
     64
 );
 
-/// Reorg guard attached to query responses: the slot/hash boundary the server
-/// scanned, so a consumer can detect a fork and unwind before committing.
+/// Reorg guard attached to query responses: the server's current in-memory
+/// head window (its last block, plus the first slot of the window and that
+/// slot's parent hash), so a consumer can detect a fork and unwind before
+/// committing. Absent when the server has no complete window to describe.
 ///
 /// Shape mirrors the EVM `RollbackGuard` field-for-field with Solana naming
 /// (`slot_number` vs `block_number`, `blockhash` vs `hash`,
@@ -152,15 +154,15 @@ base58_newtype!(
 // tolerate fields a newer server adds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RollbackGuard {
-    /// The last slot in the response.
+    /// The last slot in the server's in-memory window.
     pub slot_number: u64,
     /// Timestamp of the last block.
     pub timestamp: i64,
     /// Blockhash of the last block.
     pub blockhash: Hash,
-    /// The first slot in the response.
+    /// The first slot in the server's in-memory window.
     pub first_slot_number: u64,
-    /// Previous blockhash of the first block in the response.
+    /// Previous blockhash of the first block in the window.
     pub first_previous_blockhash: Hash,
 }
 

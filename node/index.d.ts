@@ -143,7 +143,10 @@ export interface QueryResponse {
   nextSlot: number
   /** Number of bytes in the raw server response (useful for tuning). */
   responseBytes: number
-  /** Reorg guard for the scanned range, when the server produced one. */
+  /**
+   * Reorg guard describing the server's in-memory head window, when the
+   * server has one to report.
+   */
   rollbackGuard?: RollbackGuard
   /**
    * Per-table row arrays. Keys are table names: `blocks`, `transactions`,
@@ -153,20 +156,21 @@ export interface QueryResponse {
 }
 
 /**
- * Reorg guard attached to query responses: the slot/hash boundary the server
- * scanned, so a consumer can detect a fork and unwind before committing.
+ * Reorg guard attached to query responses: the server's in-memory head
+ * window (its last block, plus the first slot of the window and that slot's
+ * parent hash), so a consumer can detect a fork and unwind before committing.
  * Shape mirrors the EVM client's rollbackGuard with Solana naming.
  */
 export interface RollbackGuard {
-  /** The last slot in the response. */
+  /** The last slot in the server's in-memory window. */
   slotNumber: number
   /** Timestamp of the last block. */
   timestamp: number
   /** Blockhash of the last block (base58). */
   blockhash: string
-  /** The first slot in the response. */
+  /** The first slot in the server's in-memory window. */
   firstSlotNumber: number
-  /** Previous blockhash of the first block in the response (base58). */
+  /** Previous blockhash of the first block in the window (base58). */
   firstPreviousBlockhash: string
 }
 

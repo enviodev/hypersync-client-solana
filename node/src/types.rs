@@ -9,20 +9,21 @@ use serde_json::Value;
 /// One row in a returned Solana table. Keys are column names in `snake_case`.
 pub type RowObject = HashMap<String, Value>;
 
-/// Reorg guard attached to query responses: the slot/hash boundary the server
-/// scanned, so a consumer can detect a fork and unwind before committing.
+/// Reorg guard attached to query responses: the server's in-memory head
+/// window (its last block, plus the first slot of the window and that slot's
+/// parent hash), so a consumer can detect a fork and unwind before committing.
 /// Shape mirrors the EVM client's rollbackGuard with Solana naming.
 #[napi(object)]
 pub struct RollbackGuard {
-    /// The last slot in the response.
+    /// The last slot in the server's in-memory window.
     pub slot_number: i64,
     /// Timestamp of the last block.
     pub timestamp: i64,
     /// Blockhash of the last block (base58).
     pub blockhash: String,
-    /// The first slot in the response.
+    /// The first slot in the server's in-memory window.
     pub first_slot_number: i64,
-    /// Previous blockhash of the first block in the response (base58).
+    /// Previous blockhash of the first block in the window (base58).
     pub first_previous_blockhash: String,
 }
 
@@ -33,7 +34,8 @@ pub struct QueryResponse {
     pub next_slot: i64,
     /// Number of bytes in the raw server response (useful for tuning).
     pub response_bytes: i64,
-    /// Reorg guard for the scanned range, when the server produced one.
+    /// Reorg guard describing the server's in-memory head window, when the
+    /// server has one to report.
     pub rollback_guard: Option<RollbackGuard>,
     /// Per-table row arrays. Keys are table names: `blocks`, `transactions`,
     /// `instruction_calls`, `logs`, `account_activity`, `rewards`.
