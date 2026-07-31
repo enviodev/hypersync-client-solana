@@ -25,10 +25,7 @@ pub struct SolanaFieldSelection {
 /// columns. Excluded from [`SolanaFieldSelection::full_physical`]; every new
 /// derived variant must be added here or the schema-coverage tests fail.
 const DERIVED_TRANSACTION_FIELDS: &[TransactionField] = &[TransactionField::TransactionId];
-const DERIVED_INSTRUCTION_FIELDS: &[InstructionField] = &[
-    InstructionField::ExecutingAccountIndex,
-    InstructionField::AccountIndexArguments,
-];
+const DERIVED_INSTRUCTION_FIELDS: &[InstructionField] = &[];
 const DERIVED_ACCOUNT_ACTIVITY_FIELDS: &[AccountActivityField] =
     &[AccountActivityField::TokenState];
 
@@ -145,13 +142,15 @@ pub enum InstructionField {
     /// wire name is still accepted on input via a serde alias.
     #[serde(alias = "program_id")]
     ExecutingAccount,
-    /// Index of the executing account within the transaction's account keys.
+    /// Index of the executing account within the transaction's resolved key
+    /// list. Stored at ingest.
     ExecutingAccountIndex,
     /// The instruction's account arguments (pubkeys). Renamed from `accounts`;
     /// the legacy wire name is still accepted on input via a serde alias.
     #[serde(alias = "accounts")]
     AccountArguments,
-    /// Indexes of the account arguments within the transaction's account keys.
+    /// Positions of the account arguments in the resolved key list. Stored at
+    /// ingest.
     AccountIndexArguments,
     Data,
     D1,

@@ -172,7 +172,9 @@ fn instruction_calls_round_trip() {
             Arc::new(UInt32Array::from(vec![0u32, 1])),
             Arc::new(make_u32_list(vec![vec![0u32], vec![1, 0]])),
             Arc::new(StringArray::from(vec![addr58(20), addr58(21)])),
+            Arc::new(UInt32Array::from(vec![Some(4u32), None])),
             Arc::new(make_string_list(vec![vec![addr58(30), addr58(31)], vec![]])),
+            Arc::new(make_u32_list(vec![vec![0u32, 1], vec![]])),
             Arc::new(BinaryArray::from_opt_vec(vec![
                 Some(&[0x0fu8, 0xaa, 0xbb] as &[u8]),
                 None,
@@ -211,7 +213,12 @@ fn instruction_calls_round_trip() {
     assert_eq!(outer.instruction_address.as_deref(), Some(&[0u32][..]));
     assert_eq!(outer.stack_height(), Some(1));
     assert_eq!(outer.executing_account, Some(addr(20)));
+    assert_eq!(outer.executing_account_index, Some(4));
     assert_eq!(outer.account_arguments, Some(vec![addr(30), addr(31)]));
+    assert_eq!(
+        outer.account_index_arguments.as_deref(),
+        Some(&[0u32, 1][..])
+    );
     assert_eq!(outer.data.as_deref(), Some(&[0x0f, 0xaa, 0xbb][..]));
     assert_eq!(outer.d1.as_deref(), Some(&[0x0f][..]));
     assert_eq!(outer.d8.as_deref(), Some(&[1u8, 2, 3, 4, 5, 6, 7, 8][..]));

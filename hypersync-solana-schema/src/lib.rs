@@ -66,9 +66,21 @@ pub fn instruction_call() -> SchemaRef {
             false,
         ),
         Field::new("executing_account", DataType::Utf8, false),
+        // Index of the executing account within the transaction's resolved
+        // key list (accountKeys ++ ALT writable ++ ALT readonly). Stored at
+        // ingest (every source has the resolved keys in hand); null when the
+        // source could not resolve positions.
+        Field::new("executing_account_index", DataType::UInt32, true),
         Field::new(
             "account_arguments",
             DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+            true,
+        ),
+        // Positions of the account arguments in the resolved key list; same
+        // sourcing/nullability as executing_account_index.
+        Field::new(
+            "account_index_arguments",
+            DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
             true,
         ),
         Field::new("data", DataType::Binary, true),
