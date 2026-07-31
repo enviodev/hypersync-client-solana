@@ -106,12 +106,12 @@ pub struct InstructionCall {
     /// The invoked program's account. Renamed from `program_id`.
     pub executing_account: Option<Address>,
     /// Index of the executing account within the transaction's resolved key
-    /// list. Derived at serving time.
+    /// list. Stored at ingest.
     pub executing_account_index: Option<u32>,
     /// The instruction's account arguments (pubkeys). Renamed from `accounts`.
     pub account_arguments: Option<Vec<Address>>,
     /// Indexes of the account arguments within the transaction's resolved key
-    /// list. Derived at serving time.
+    /// list. Stored at ingest.
     pub account_index_arguments: Option<Vec<u32>>,
     pub data: Option<Vec<u8>>,
     pub d1: Option<Vec<u8>>,

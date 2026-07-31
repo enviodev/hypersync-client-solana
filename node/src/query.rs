@@ -127,6 +127,10 @@ pub struct SolanaQuery {
     pub transactions: Option<Vec<TransactionSelection>>,
     pub logs: Option<Vec<LogSelection>>,
     pub account_activity: Option<Vec<AccountActivitySelection>>,
+    /// @deprecated the server removed this flag; setting it to true is an
+    /// error. Use `accountActivity: [{}]` to request every account activity
+    /// row in range.
+    pub include_account_activity: Option<bool>,
     pub include_all_blocks: Option<bool>,
     /// Per-table field selection (which columns to return).
     pub field_selection: Option<FieldSelection>,
@@ -280,6 +284,13 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
     type Error = anyhow::Error;
 
     fn try_from(q: SolanaQuery) -> Result<Self> {
+        // The legacy flag is gone server-side; fail loudly instead of
+        // silently dropping it.
+        if q.include_account_activity == Some(true) {
+            return Err(anyhow::anyhow!(
+                "includeAccountActivity was removed; use accountActivity: [{{}}] to request every account activity row in range"
+            ));
+        }
         let from_slot = u64::try_from(q.from_slot).context("from_slot must be non-negative")?;
         let to_slot = q
             .to_slot

@@ -170,6 +170,9 @@ export interface RollbackGuard {
   firstPreviousBlockhash: string
 }
 
+/** One decoded row: column name (`snake_case`) to value. */
+export type RowObject = Record<string, unknown>
+
 /**
  * Top-level Solana HyperSync query. Returns block bundles matching the
  * given filters within `[from_slot, to_slot)`.
@@ -188,6 +191,12 @@ export interface SolanaQuery {
   transactions?: Array<TransactionSelection>
   logs?: Array<LogSelection>
   accountActivity?: Array<AccountActivitySelection>
+  /**
+   * @deprecated the server removed this flag; setting it to true is an
+   * error. Use `accountActivity: [{}]` to request every account activity
+   * row in range.
+   */
+  includeAccountActivity?: boolean
   includeAllBlocks?: boolean
   /** Per-table field selection (which columns to return). */
   fieldSelection?: FieldSelection
