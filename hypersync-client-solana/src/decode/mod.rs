@@ -2,7 +2,7 @@
 //!
 //! Callers hand the client a [`ProgramSchema`] (loaded from an Anchor IDL, a
 //! hand-written constant, or one of the [`bundled`] schemas) and a
-//! [`crate::simple_types::Instruction`], and get back a
+//! [`crate::simple_types::InstructionCall`], and get back a
 //! [`DecodedInstruction`] with named accounts and Borsh-decoded args as a
 //! `serde_json::Value`.
 //!
@@ -23,7 +23,7 @@ pub use schema::{
     NamedAccount, NamedField, ProgramSchema,
 };
 
-use crate::simple_types::Instruction;
+use crate::simple_types::InstructionCall;
 use std::collections::BTreeMap;
 
 /// Decode one instruction against a `ProgramSchema`.
@@ -42,9 +42,11 @@ use std::collections::BTreeMap;
 /// Anchor's runtime behavior for `Option<AccountInfo>` slots.
 pub fn decode_instruction(
     schema: &ProgramSchema,
-    instruction: &Instruction,
+    instruction: &InstructionCall,
 ) -> Result<DecodedInstruction, DecodeError> {
-    let data = instruction.data.as_slice();
+    // A projected-away `data` column decodes the same as empty data: there is
+    // nothing to decode against.
+    let data = instruction.data.as_deref().unwrap_or_default();
     if data.is_empty() {
         return Err(DecodeError::EmptyInstructionData);
     }
@@ -73,8 +75,9 @@ pub fn decode_instruction(
         DecodeError::UnknownDiscriminator(data[..max_n].to_vec())
     })?;
 
+    let arguments = instruction.account_arguments.as_deref().unwrap_or_default();
     let required = required_account_count(&ix.accounts);
-    let got = instruction.accounts.len();
+    let got = arguments.len();
     if got < required {
         return Err(DecodeError::AccountCountTooFew {
             instruction: ix.name.clone(),
@@ -86,11 +89,14 @@ pub fn decode_instruction(
     let mut named_accounts: BTreeMap<String, String> = BTreeMap::new();
     let pair_count = ix.accounts.len().min(got);
     for (i, acc) in ix.accounts[..pair_count].iter().enumerate() {
-        named_accounts.insert(acc.name.clone(), instruction.accounts[i].clone());
+        named_accounts.insert(acc.name.clone(), arguments[i].to_string());
     }
 
     let extra_accounts: Vec<String> = if got > ix.accounts.len() {
-        instruction.accounts[ix.accounts.len()..].to_vec()
+        arguments[ix.accounts.len()..]
+            .iter()
+            .map(|a| a.to_string())
+            .collect()
     } else {
         Vec::new()
     };

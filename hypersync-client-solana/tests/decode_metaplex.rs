@@ -8,7 +8,7 @@
 
 use borsh::BorshSerialize;
 use hypersync_client_solana::decode::{decode_instruction, metaplex_token_metadata};
-use hypersync_client_solana::simple_types::Instruction;
+use hypersync_client_solana::simple_types::{Address, InstructionCall};
 use serde_json::json;
 
 // --- on-chain layout mirrors ------------------------------------------------
@@ -70,11 +70,17 @@ fn b58(b: [u8; 32]) -> String {
     bs58::encode(b).into_string()
 }
 
-fn instr(data: Vec<u8>, accounts: Vec<&str>) -> Instruction {
-    Instruction {
-        program_id: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s".to_string(),
-        accounts: accounts.into_iter().map(str::to_string).collect(),
-        data,
+/// A deterministic valid base58 account address per seed. Account arguments
+/// are typed `Address` now, so fixtures must be real 32-byte pubkeys.
+fn ta(seed: u8) -> String {
+    Address([seed; 32]).to_string()
+}
+
+fn instr(data: Vec<u8>, accounts: Vec<String>) -> InstructionCall {
+    InstructionCall {
+        executing_account: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s".parse().ok(),
+        account_arguments: Some(accounts.iter().map(|a| a.parse().unwrap()).collect()),
+        data: Some(data),
         ..Default::default()
     }
 }
@@ -116,14 +122,8 @@ fn create_metadata_account_v3_decodes() {
     let cd = CollectionDetails::V1 { size: 42 };
     buf.extend(borsh::to_vec(&cd).expect("encode cd"));
 
-    let accounts = vec![
-        "Metadata1",
-        "Mint1",
-        "MintAuth1",
-        "Payer1",
-        "UpdAuth1",
-        "SysProg1",
-    ]; // 6 accounts (rent is optional in V3 and omitted)
+    let accounts = vec![ta(1), ta(2), ta(3), ta(4), ta(5), ta(6)];
+    // 6 accounts (rent is optional in V3 and omitted)
 
     let decoded = decode_instruction(schema, &instr(buf, accounts)).expect("decode");
     assert_eq!(decoded.name, "CreateMetadataAccountV3");
@@ -150,10 +150,7 @@ fn create_metadata_account_v3_decodes() {
         })
     );
     assert_eq!(decoded.named_accounts.len(), 6);
-    assert_eq!(
-        decoded.named_accounts.get("metadata").map(String::as_str),
-        Some("Metadata1")
-    );
+    assert_eq!(decoded.named_accounts.get("metadata"), Some(&ta(1)));
     assert!(decoded.extra_accounts.is_empty());
 }
 
@@ -176,7 +173,7 @@ fn create_metadata_account_v3_decodes_with_none_options() {
 
     let decoded = decode_instruction(
         schema,
-        &instr(buf, vec!["m", "mint", "ma", "p", "ua", "sys", "rent"]),
+        &instr(buf, vec![ta(1), ta(2), ta(3), ta(4), ta(5), ta(6), ta(7)]),
     )
     .expect("decode");
     assert_eq!(
@@ -220,7 +217,7 @@ fn update_metadata_account_v2_decodes() {
     buf.push(1); // is_mutable: Some
     buf.push(0); // is_mutable = false
 
-    let decoded = decode_instruction(schema, &instr(buf, vec!["meta", "ua"])).expect("decode");
+    let decoded = decode_instruction(schema, &instr(buf, vec![ta(1), ta(2)])).expect("decode");
     assert_eq!(decoded.name, "UpdateMetadataAccountV2");
     assert_eq!(
         decoded.args,
@@ -241,14 +238,8 @@ fn update_metadata_account_v2_decodes() {
 fn verify_collection_decodes_no_args() {
     let schema = metaplex_token_metadata();
     let data = vec![0x12];
-    let accounts = vec![
-        "metadata",
-        "collection_authority",
-        "payer",
-        "collection_mint",
-        "collection",
-        "collection_master_edition_account",
-    ]; // trailing collection_authority_record is optional, omitted
+    let accounts = vec![ta(1), ta(2), ta(3), ta(4), ta(5), ta(6)];
+    // trailing collection_authority_record is optional, omitted
     let decoded = decode_instruction(schema, &instr(data, accounts)).expect("decode");
     assert_eq!(decoded.name, "VerifyCollection");
     assert_eq!(decoded.args, json!({}));
@@ -263,22 +254,22 @@ fn burn_decodes_with_burn_args_enum() {
 
     // All 14 positional slots; real-world callers always supply the full
     // shape, filling absent slots with the program id.
-    let prog_id = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
+    let prog_id = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s".to_string();
     let accounts = vec![
-        "authority",
-        prog_id, // collection_metadata absent
-        "metadata",
-        prog_id, // edition absent
-        "mint",
-        "token",
-        prog_id, // master_edition absent
-        prog_id, // master_edition_mint absent
-        prog_id, // master_edition_token absent
-        prog_id, // edition_marker absent
-        prog_id, // token_record absent
-        "system_program",
-        "sysvar_instructions",
-        "spl_token_program",
+        ta(1),           // authority
+        prog_id.clone(), // collection_metadata absent
+        ta(2),           // metadata
+        prog_id.clone(), // edition absent
+        ta(3),           // mint
+        ta(4),           // token
+        prog_id.clone(), // master_edition absent
+        prog_id.clone(), // master_edition_mint absent
+        prog_id.clone(), // master_edition_token absent
+        prog_id.clone(), // edition_marker absent
+        prog_id.clone(), // token_record absent
+        ta(5),           // system_program
+        ta(6),           // sysvar_instructions
+        ta(7),           // spl_token_program
     ];
     let decoded = decode_instruction(schema, &instr(buf, accounts)).expect("decode");
     assert_eq!(decoded.name, "Burn");
@@ -294,7 +285,7 @@ fn create_master_edition_v3_decodes() {
     let mut buf = vec![0x11];
     buf.push(1); // max_supply: Some
     buf.extend_from_slice(&1000u64.to_le_bytes());
-    let accounts = vec!["ed", "mint", "ua", "ma", "payer", "meta", "tp", "sys"];
+    let accounts = vec![ta(1), ta(2), ta(3), ta(4), ta(5), ta(6), ta(7), ta(8)];
     let decoded = decode_instruction(schema, &instr(buf, accounts)).expect("decode");
     assert_eq!(decoded.name, "CreateMasterEditionV3");
     assert_eq!(decoded.args, json!({ "max_supply": "1000" }));
@@ -305,16 +296,16 @@ fn surplus_accounts_go_to_extra() {
     let schema = metaplex_token_metadata();
     let data = vec![0x12];
     let accounts = vec![
-        "m",
-        "ca",
-        "p",
-        "cm",
-        "c",
-        "cmea",
-        "car",
-        "remaining_1",
-        "remaining_2",
+        ta(1),
+        ta(2),
+        ta(3),
+        ta(4),
+        ta(5),
+        ta(6),
+        ta(7),
+        ta(8),
+        ta(9),
     ];
     let decoded = decode_instruction(schema, &instr(data, accounts)).expect("decode");
-    assert_eq!(decoded.extra_accounts, vec!["remaining_1", "remaining_2"]);
+    assert_eq!(decoded.extra_accounts, vec![ta(8), ta(9)]);
 }

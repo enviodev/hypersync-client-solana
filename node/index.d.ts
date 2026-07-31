@@ -37,6 +37,10 @@ export interface AccountActivitySelection {
   account?: Array<string>
   transactionId?: Array<string>
   mint?: Array<string>
+  /**
+   * Matches either the pre or the post owner (the stored column is split so
+   * an in-transaction owner change stays visible).
+   */
   owner?: Array<string>
   programId?: Array<string>
   /**
@@ -84,7 +88,7 @@ export interface FieldSelection {
   reward?: Array<string>
 }
 
-/** Filter for selecting instructions. All non-empty fields are AND-ed. */
+/** Filter for selecting instruction calls. All non-empty fields are AND-ed. */
 export interface InstructionSelection {
   executingAccount?: Array<string>
   /**
@@ -109,8 +113,15 @@ export interface InstructionSelection {
   /** None: match both outer and inner. true: inner only. false: outer only. */
   isInner?: boolean
   /**
-   * Commit status of the parent transaction. None: match both committed and
-   * failed. true: successful transactions only. false: failed only.
+   * Success of the PARENT transaction. None: match instructions of both
+   * successful and failed transactions. true: successful only. false:
+   * failed only. Instructions of failed transactions had their state
+   * changes rolled back, so consumers that count effects should set true.
+   */
+  txSuccess?: boolean
+  /**
+   * @deprecated renamed to `txSuccess`; still honored when `txSuccess` is
+   * absent.
    */
   isCommitted?: boolean
 }
@@ -118,6 +129,11 @@ export interface InstructionSelection {
 /** Filter for selecting logs. All non-empty fields are AND-ed. */
 export interface LogSelection {
   programId?: Array<string>
+  /**
+   * Log kinds to match: invoke/success/failed/consumed/log/data/other.
+   * SQD-ingested and default RPC-ingested ranges only carry
+   * log/data/other rows.
+   */
   kind?: Array<string>
 }
 
@@ -127,11 +143,31 @@ export interface QueryResponse {
   nextSlot: number
   /** Number of bytes in the raw server response (useful for tuning). */
   responseBytes: number
+  /** Reorg guard for the scanned range, when the server produced one. */
+  rollbackGuard?: RollbackGuard
   /**
    * Per-table row arrays. Keys are table names: `blocks`, `transactions`,
-   * `instructions`, `logs`, `balances`, `token_balances`, `rewards`.
+   * `instruction_calls`, `logs`, `account_activity`, `rewards`.
    */
   tables: Record<string, Array<RowObject>>
+}
+
+/**
+ * Reorg guard attached to query responses: the slot/hash boundary the server
+ * scanned, so a consumer can detect a fork and unwind before committing.
+ * Shape mirrors the EVM client's rollbackGuard with Solana naming.
+ */
+export interface RollbackGuard {
+  /** The last slot in the response. */
+  slotNumber: number
+  /** Timestamp of the last block. */
+  timestamp: number
+  /** Blockhash of the last block (base58). */
+  blockhash: string
+  /** The first slot in the response. */
+  firstSlotNumber: number
+  /** Previous blockhash of the first block in the response (base58). */
+  firstPreviousBlockhash: string
 }
 
 /**
@@ -153,11 +189,6 @@ export interface SolanaQuery {
   logs?: Array<LogSelection>
   accountActivity?: Array<AccountActivitySelection>
   includeAllBlocks?: boolean
-  /**
-   * Return merged account activity for the matched result set without
-   * requiring `include_all_blocks`.
-   */
-  includeAccountActivity?: boolean
   /** Per-table field selection (which columns to return). */
   fieldSelection?: FieldSelection
   maxNumBlocks?: number

@@ -51,7 +51,7 @@ async fn collect_returns_token_metadata_instructions() {
         from_slot: from,
         to_slot: Some(to),
         instruction_calls: vec![InstructionSelection {
-            executing_account: vec![TOKEN_METADATA_PROGRAM.to_string()],
+            executing_account: vec![TOKEN_METADATA_PROGRAM.parse().unwrap()],
             ..Default::default()
         }],
         // Cap the response so we don't pull megabytes on every run.
@@ -66,17 +66,23 @@ async fn collect_returns_token_metadata_instructions() {
 
     eprintln!(
         "got {} instructions, {} transactions, {} blocks, next_slot={}",
-        resp.instructions.len(),
+        resp.instruction_calls.len(),
         resp.transactions.len(),
         resp.blocks.len(),
         resp.next_slot
     );
     assert!(
-        !resp.instructions.is_empty(),
+        !resp.instruction_calls.is_empty(),
         "expected at least one Token Metadata instruction"
     );
-    for ix in resp.instructions.iter().take(3) {
-        assert_eq!(ix.program_id, TOKEN_METADATA_PROGRAM);
-        assert!(!ix.data.is_empty(), "instruction data should not be empty");
+    for ix in resp.instruction_calls.iter().take(3) {
+        assert_eq!(
+            ix.executing_account.map(|a| a.to_string()).as_deref(),
+            Some(TOKEN_METADATA_PROGRAM)
+        );
+        assert!(
+            ix.data.as_deref().is_some_and(|d| !d.is_empty()),
+            "instruction data should not be empty"
+        );
     }
 }

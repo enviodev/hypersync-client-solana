@@ -142,6 +142,28 @@ base58_newtype!(
     64
 );
 
+/// Reorg guard attached to query responses: the slot/hash boundary the server
+/// scanned, so a consumer can detect a fork and unwind before committing.
+///
+/// Shape mirrors the EVM `RollbackGuard` field-for-field with Solana naming
+/// (`slot_number` vs `block_number`, `blockhash` vs `hash`,
+/// `first_previous_blockhash` vs `first_parent_hash`).
+// No deny_unknown_fields: this is a RESPONSE type, so an old client must
+// tolerate fields a newer server adds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RollbackGuard {
+    /// The last slot in the response.
+    pub slot_number: u64,
+    /// Timestamp of the last block.
+    pub timestamp: i64,
+    /// Blockhash of the last block.
+    pub blockhash: Hash,
+    /// The first slot in the response.
+    pub first_slot_number: u64,
+    /// Previous blockhash of the first block in the response.
+    pub first_previous_blockhash: Hash,
+}
+
 /// Classification of a log line, as stored in the `logs.kind` column.
 ///
 /// Source caveat: SQD-ingested ranges and default (canonical-fidelity) RPC
@@ -214,6 +236,36 @@ impl fmt::Display for LogKind {
         f.write_str(self.as_str())
     }
 }
+
+/// STRICT parse for filter input: an unknown kind is an error (unlike
+/// [`LogKind::from_stored`], which folds unknowns into `Other` for response
+/// decoding).
+impl FromStr for LogKind {
+    type Err = UnknownLogKind;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match LogKind::from_stored(s) {
+            LogKind::Other if s != "other" => Err(UnknownLogKind(s.to_owned())),
+            kind => Ok(kind),
+        }
+    }
+}
+
+/// Error for [`LogKind::from_str`] on an unrecognized kind string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownLogKind(pub String);
+
+impl fmt::Display for UnknownLogKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "unknown log kind {:?}, expected one of invoke/success/failed/consumed/log/data/other",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnknownLogKind {}
 
 /// Token-side state of an `account_activity` row, derived at serving time
 /// from the presence of the pre/post token columns. When selected it is

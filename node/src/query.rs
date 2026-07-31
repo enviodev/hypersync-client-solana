@@ -10,6 +10,7 @@ use hypersync_solana_net_types::query::{
     InstructionSelection as RsInstructionSelection, LogSelection as RsLogSelection,
     SolanaQuery as RsSolanaQuery, TransactionSelection as RsTransactionSelection,
 };
+use hypersync_solana_net_types::{Address, LogKind, Signature};
 
 /// Per-table field selection. Each list is a set of column names in `snake_case`.
 /// An empty (or missing) list means "return all columns for that table".
@@ -27,7 +28,7 @@ pub struct FieldSelection {
     pub reward: Option<Vec<String>>,
 }
 
-/// Filter for selecting instructions. All non-empty fields are AND-ed.
+/// Filter for selecting instruction calls. All non-empty fields are AND-ed.
 #[napi(object)]
 #[derive(Default, Clone)]
 pub struct InstructionSelection {
@@ -51,8 +52,13 @@ pub struct InstructionSelection {
     pub a9: Option<Vec<String>>,
     /// None: match both outer and inner. true: inner only. false: outer only.
     pub is_inner: Option<bool>,
-    /// Commit status of the parent transaction. None: match both committed and
-    /// failed. true: successful transactions only. false: failed only.
+    /// Success of the PARENT transaction. None: match instructions of both
+    /// successful and failed transactions. true: successful only. false:
+    /// failed only. Instructions of failed transactions had their state
+    /// changes rolled back, so consumers that count effects should set true.
+    pub tx_success: Option<bool>,
+    /// @deprecated renamed to `txSuccess`; still honored when `txSuccess` is
+    /// absent.
     pub is_committed: Option<bool>,
 }
 
@@ -73,6 +79,9 @@ pub struct TransactionSelection {
 #[derive(Default, Clone)]
 pub struct LogSelection {
     pub program_id: Option<Vec<String>>,
+    /// Log kinds to match: invoke/success/failed/consumed/log/data/other.
+    /// SQD-ingested and default RPC-ingested ranges only carry
+    /// log/data/other rows.
     pub kind: Option<Vec<String>>,
 }
 
@@ -90,6 +99,8 @@ pub struct AccountActivitySelection {
     pub account: Option<Vec<String>>,
     pub transaction_id: Option<Vec<String>>,
     pub mint: Option<Vec<String>>,
+    /// Matches either the pre or the post owner (the stored column is split
+    /// so an in-transaction owner change stays visible).
     pub owner: Option<Vec<String>>,
     pub program_id: Option<Vec<String>>,
     /// Position flags. A row whose flag is null (the source could not derive
@@ -117,9 +128,6 @@ pub struct SolanaQuery {
     pub logs: Option<Vec<LogSelection>>,
     pub account_activity: Option<Vec<AccountActivitySelection>>,
     pub include_all_blocks: Option<bool>,
-    /// Return merged account activity for the matched result set without
-    /// requiring `include_all_blocks`.
-    pub include_account_activity: Option<bool>,
     /// Per-table field selection (which columns to return).
     pub field_selection: Option<FieldSelection>,
     pub max_num_blocks: Option<i64>,
@@ -136,6 +144,21 @@ where
     vals.into_iter()
         .map(|s| {
             T::from_str(&s).map_err(|e| anyhow::anyhow!("invalid {} field '{}': {}", name, s, e))
+        })
+        .collect()
+}
+
+/// Parse a list of base58 strings into a typed value list (Address /
+/// Signature / LogKind). Malformed entries error fail-fast with the filter
+/// field named, rather than silently matching nothing.
+fn parse_list<T: FromStr>(name: &str, vals: Option<Vec<String>>) -> Result<Vec<T>>
+where
+    T::Err: std::fmt::Display,
+{
+    vals.unwrap_or_default()
+        .into_iter()
+        .map(|s| {
+            T::from_str(&s).map_err(|e| anyhow::anyhow!("invalid {} value '{}': {}", name, s, e))
         })
         .collect()
 }
@@ -164,27 +187,32 @@ impl TryFrom<FieldSelection> for SolanaFieldSelection {
     }
 }
 
-impl From<InstructionSelection> for RsInstructionSelection {
-    fn from(s: InstructionSelection) -> Self {
-        RsInstructionSelection {
-            executing_account: s.executing_account.or(s.program_id).unwrap_or_default(),
+impl TryFrom<InstructionSelection> for RsInstructionSelection {
+    type Error = anyhow::Error;
+
+    fn try_from(s: InstructionSelection) -> Result<Self> {
+        Ok(RsInstructionSelection {
+            executing_account: parse_list::<Address>(
+                "executing_account",
+                s.executing_account.or(s.program_id),
+            )?,
             d1: s.d1.unwrap_or_default(),
             d2: s.d2.unwrap_or_default(),
             d4: s.d4.unwrap_or_default(),
             d8: s.d8.unwrap_or_default(),
-            a0: s.a0.unwrap_or_default(),
-            a1: s.a1.unwrap_or_default(),
-            a2: s.a2.unwrap_or_default(),
-            a3: s.a3.unwrap_or_default(),
-            a4: s.a4.unwrap_or_default(),
-            a5: s.a5.unwrap_or_default(),
-            a6: s.a6.unwrap_or_default(),
-            a7: s.a7.unwrap_or_default(),
-            a8: s.a8.unwrap_or_default(),
-            a9: s.a9.unwrap_or_default(),
+            a0: parse_list::<Address>("a0", s.a0)?,
+            a1: parse_list::<Address>("a1", s.a1)?,
+            a2: parse_list::<Address>("a2", s.a2)?,
+            a3: parse_list::<Address>("a3", s.a3)?,
+            a4: parse_list::<Address>("a4", s.a4)?,
+            a5: parse_list::<Address>("a5", s.a5)?,
+            a6: parse_list::<Address>("a6", s.a6)?,
+            a7: parse_list::<Address>("a7", s.a7)?,
+            a8: parse_list::<Address>("a8", s.a8)?,
+            a9: parse_list::<Address>("a9", s.a9)?,
             is_inner: s.is_inner,
-            is_committed: s.is_committed,
-        }
+            tx_success: s.tx_success.or(s.is_committed),
+        })
     }
 }
 
@@ -193,8 +221,8 @@ impl TryFrom<TransactionSelection> for RsTransactionSelection {
 
     fn try_from(s: TransactionSelection) -> Result<Self> {
         Ok(RsTransactionSelection {
-            fee_payer: s.fee_payer.unwrap_or_default(),
-            transaction_id: s.transaction_id.unwrap_or_default(),
+            fee_payer: parse_list::<Address>("fee_payer", s.fee_payer)?,
+            transaction_id: parse_list::<Signature>("transaction_id", s.transaction_id)?,
             transaction_index: s
                 .transaction_index
                 .unwrap_or_default()
@@ -206,12 +234,14 @@ impl TryFrom<TransactionSelection> for RsTransactionSelection {
     }
 }
 
-impl From<LogSelection> for RsLogSelection {
-    fn from(s: LogSelection) -> Self {
-        RsLogSelection {
-            program_id: s.program_id.unwrap_or_default(),
-            kind: s.kind.unwrap_or_default(),
-        }
+impl TryFrom<LogSelection> for RsLogSelection {
+    type Error = anyhow::Error;
+
+    fn try_from(s: LogSelection) -> Result<Self> {
+        Ok(RsLogSelection {
+            program_id: parse_list::<Address>("program_id", s.program_id)?,
+            kind: parse_list::<LogKind>("kind", s.kind)?,
+        })
     }
 }
 
@@ -233,11 +263,11 @@ impl TryFrom<AccountActivitySelection> for RsAccountActivitySelection {
             .collect::<Result<Vec<_>>>()?;
         Ok(RsAccountActivitySelection {
             kind,
-            account: s.account.unwrap_or_default(),
-            transaction_id: s.transaction_id.unwrap_or_default(),
-            mint: s.mint.unwrap_or_default(),
-            owner: s.owner.unwrap_or_default(),
-            program_id: s.program_id.unwrap_or_default(),
+            account: parse_list::<Address>("account", s.account)?,
+            transaction_id: parse_list::<Signature>("transaction_id", s.transaction_id)?,
+            mint: parse_list::<Address>("mint", s.mint)?,
+            owner: parse_list::<Address>("owner", s.owner)?,
+            program_id: parse_list::<Address>("program_id", s.program_id)?,
             is_signer: s.is_signer,
             is_writable: s.is_writable,
             is_fee_payer: s.is_fee_payer,
@@ -275,8 +305,8 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
                 .or(q.instructions)
                 .unwrap_or_default()
                 .into_iter()
-                .map(Into::into)
-                .collect(),
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>>>()?,
             transactions: q
                 .transactions
                 .unwrap_or_default()
@@ -287,8 +317,8 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
                 .logs
                 .unwrap_or_default()
                 .into_iter()
-                .map(Into::into)
-                .collect(),
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>>>()?,
             account_activity: q
                 .account_activity
                 .unwrap_or_default()
@@ -296,7 +326,6 @@ impl TryFrom<SolanaQuery> for RsSolanaQuery {
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>>>()?,
             include_all_blocks: q.include_all_blocks.unwrap_or_default(),
-            include_account_activity: q.include_account_activity.unwrap_or_default(),
             field_selection,
             max_num_blocks: q.max_num_blocks.map(|v| v.max(0) as usize),
             max_num_transactions: q.max_num_transactions.map(|v| v.max(0) as usize),

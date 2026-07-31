@@ -42,7 +42,7 @@ async fn decode_recent_metaplex_instructions() {
         from_slot: from,
         to_slot: Some(height),
         instruction_calls: vec![InstructionSelection {
-            executing_account: vec![TOKEN_METADATA_PROGRAM.to_string()],
+            executing_account: vec![TOKEN_METADATA_PROGRAM.parse().unwrap()],
             ..Default::default()
         }],
         max_num_instructions: Some(200),
@@ -55,10 +55,10 @@ async fn decode_recent_metaplex_instructions() {
         .expect("collect");
 
     assert!(
-        !resp.instructions.is_empty(),
+        !resp.instruction_calls.is_empty(),
         "expected at least one Metaplex instruction in the last 10k slots"
     );
-    eprintln!("pulled {} instructions", resp.instructions.len());
+    eprintln!("pulled {} instructions", resp.instruction_calls.len());
 
     let schema = metaplex_token_metadata();
     let mut decoded_ok = 0usize;
@@ -66,7 +66,7 @@ async fn decode_recent_metaplex_instructions() {
     let mut other_err = 0usize;
     let mut create_v3_seen = 0usize;
 
-    for ix in &resp.instructions {
+    for ix in &resp.instruction_calls {
         match decode_instruction(schema, ix) {
             Ok(d) => {
                 decoded_ok += 1;
@@ -82,7 +82,10 @@ async fn decode_recent_metaplex_instructions() {
             Err(DecodeError::UnknownDiscriminator(_)) => unknown_disc += 1,
             Err(e) => {
                 other_err += 1;
-                eprintln!("  decode error on disc {:02x?}: {e}", &ix.data[..1]);
+                eprintln!(
+                    "  decode error on disc {:02x?}: {e}",
+                    &ix.data.as_deref().unwrap_or_default()[..1]
+                );
             }
         }
     }
@@ -90,7 +93,7 @@ async fn decode_recent_metaplex_instructions() {
     eprintln!(
         "decoded {} / {} (unknown_disc={}, other_err={}, create_v3_seen={})",
         decoded_ok,
-        resp.instructions.len(),
+        resp.instruction_calls.len(),
         unknown_disc,
         other_err,
         create_v3_seen

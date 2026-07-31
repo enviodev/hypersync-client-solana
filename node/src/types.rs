@@ -9,6 +9,23 @@ use serde_json::Value;
 /// One row in a returned Solana table. Keys are column names in `snake_case`.
 pub type RowObject = HashMap<String, Value>;
 
+/// Reorg guard attached to query responses: the slot/hash boundary the server
+/// scanned, so a consumer can detect a fork and unwind before committing.
+/// Shape mirrors the EVM client's rollbackGuard with Solana naming.
+#[napi(object)]
+pub struct RollbackGuard {
+    /// The last slot in the response.
+    pub slot_number: i64,
+    /// Timestamp of the last block.
+    pub timestamp: i64,
+    /// Blockhash of the last block (base58).
+    pub blockhash: String,
+    /// The first slot in the response.
+    pub first_slot_number: i64,
+    /// Previous blockhash of the first block in the response (base58).
+    pub first_previous_blockhash: String,
+}
+
 /// Response from a Solana HyperSync query.
 #[napi(object)]
 pub struct QueryResponse {
@@ -16,8 +33,10 @@ pub struct QueryResponse {
     pub next_slot: i64,
     /// Number of bytes in the raw server response (useful for tuning).
     pub response_bytes: i64,
+    /// Reorg guard for the scanned range, when the server produced one.
+    pub rollback_guard: Option<RollbackGuard>,
     /// Per-table row arrays. Keys are table names: `blocks`, `transactions`,
-    /// `instructions`, `logs`, `account_activity`, `rewards`.
+    /// `instruction_calls`, `logs`, `account_activity`, `rewards`.
     pub tables: HashMap<String, Vec<RowObject>>,
 }
 
@@ -32,6 +51,25 @@ impl TryFrom<RsQueryResponse> for QueryResponse {
             tables.insert(name.to_string(), rows);
         }
 
+        let rollback_guard = resp
+            .rollback_guard
+            .map(|g| -> Result<RollbackGuard> {
+                Ok(RollbackGuard {
+                    slot_number: g
+                        .slot_number
+                        .try_into()
+                        .context("slot_number does not fit in i64")?,
+                    timestamp: g.timestamp,
+                    blockhash: g.blockhash.to_string(),
+                    first_slot_number: g
+                        .first_slot_number
+                        .try_into()
+                        .context("first_slot_number does not fit in i64")?,
+                    first_previous_blockhash: g.first_previous_blockhash.to_string(),
+                })
+            })
+            .transpose()?;
+
         Ok(QueryResponse {
             next_slot: resp
                 .next_slot
@@ -41,6 +79,7 @@ impl TryFrom<RsQueryResponse> for QueryResponse {
                 .response_bytes
                 .try_into()
                 .context("response_bytes does not fit in i64")?,
+            rollback_guard,
             tables,
         })
     }
