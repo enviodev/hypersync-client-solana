@@ -115,6 +115,12 @@ impl Client {
                 Some(mut a) => {
                     a.next_slot = resp.next_slot;
                     a.response_bytes += resp.response_bytes;
+                    // Keep the most recent page's guard; a page without one
+                    // (head not in memory) must not erase an earlier guard
+                    // that still covers merged rows.
+                    if resp.rollback_guard.is_some() {
+                        a.rollback_guard = resp.rollback_guard;
+                    }
                     for (name, batch) in resp.data.tables {
                         if batch.num_rows() == 0 {
                             continue;
@@ -245,6 +251,7 @@ impl Client {
 fn decode_response_tables(arrow: QueryResponse) -> Result<SolanaResponse> {
     let mut resp = SolanaResponse {
         next_slot: arrow.next_slot,
+        rollback_guard: arrow.rollback_guard,
         response_bytes: arrow.response_bytes,
         ..Default::default()
     };
@@ -257,9 +264,9 @@ fn decode_response_tables(arrow: QueryResponse) -> Result<SolanaResponse> {
                 resp.transactions =
                     from_arrow::transactions_from_arrow(&batch).context("decode transactions")?
             }
-            "instructions" => {
-                resp.instructions =
-                    from_arrow::instructions_from_arrow(&batch).context("decode instructions")?
+            "instruction_calls" => {
+                resp.instruction_calls = from_arrow::instruction_calls_from_arrow(&batch)
+                    .context("decode instruction_calls")?
             }
             "logs" => resp.logs = from_arrow::logs_from_arrow(&batch).context("decode logs")?,
             "account_activity" => {

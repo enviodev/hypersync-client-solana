@@ -1,4 +1,4 @@
-// Query recent Whirlpool instructions and their parent transactions.
+// Query recent Whirlpool instruction calls and their parent transactions.
 const { SolanaClient } = require("..");
 
 const WHIRLPOOL = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
@@ -14,24 +14,24 @@ async function main() {
 
   const resp = await client.query({
     fromSlot,
-    instructions: [
+    instructionCalls: [
       {
-        programId: [WHIRLPOOL],
+        executingAccount: [WHIRLPOOL],
       },
     ],
     fieldSelection: {
-      instruction: ["slot", "transaction_index", "program_id", "data"],
+      instructionCall: ["slot", "transaction_index", "executing_account", "data"],
       transaction: ["slot", "transaction_index", "fee_payer", "success"],
     },
   });
 
-  const ixs = resp.tables.instructions ?? [];
+  const ixs = resp.tables.instruction_calls ?? [];
   const txs = resp.tables.transactions ?? [];
   console.log(`scanned slots ${fromSlot} -> ${resp.nextSlot}`);
-  console.log(`instructions: ${ixs.length}`);
+  console.log(`instruction calls: ${ixs.length}`);
   console.log(`transactions: ${txs.length}`);
   if (ixs.length) {
-    console.log("first instruction:", ixs[0]);
+    console.log("first instruction call:", ixs[0]);
   }
 }
 

@@ -37,6 +37,10 @@ export interface AccountActivitySelection {
   account?: Array<string>
   transactionId?: Array<string>
   mint?: Array<string>
+  /**
+   * Matches either the pre or the post owner (the stored column is split so
+   * an in-transaction owner change stays visible).
+   */
   owner?: Array<string>
   programId?: Array<string>
   /**
@@ -84,7 +88,7 @@ export interface FieldSelection {
   reward?: Array<string>
 }
 
-/** Filter for selecting instructions. All non-empty fields are AND-ed. */
+/** Filter for selecting instruction calls. All non-empty fields are AND-ed. */
 export interface InstructionSelection {
   executingAccount?: Array<string>
   /**
@@ -109,8 +113,17 @@ export interface InstructionSelection {
   /** None: match both outer and inner. true: inner only. false: outer only. */
   isInner?: boolean
   /**
-   * Commit status of the parent transaction. None: match both committed and
-   * failed. true: successful transactions only. false: failed only.
+   * Success of the PARENT transaction. None: match instructions of both
+   * successful and failed transactions. true: successful only. false:
+   * failed only. NOTE: servers running the failed-transaction trim store
+   * no instruction rows for failed transactions, so `false` matches
+   * nothing there; query failed transactions via the transactions table's
+   * `success` filter instead.
+   */
+  txSuccess?: boolean
+  /**
+   * @deprecated renamed to `txSuccess`; still honored when `txSuccess` is
+   * absent.
    */
   isCommitted?: boolean
 }
@@ -118,6 +131,11 @@ export interface InstructionSelection {
 /** Filter for selecting logs. All non-empty fields are AND-ed. */
 export interface LogSelection {
   programId?: Array<string>
+  /**
+   * Log kinds to match: invoke/success/failed/consumed/log/data/other.
+   * SQD-ingested and default RPC-ingested ranges only carry
+   * log/data/other rows.
+   */
   kind?: Array<string>
 }
 
@@ -128,11 +146,38 @@ export interface QueryResponse {
   /** Number of bytes in the raw server response (useful for tuning). */
   responseBytes: number
   /**
+   * Reorg guard describing the server's in-memory head window, when the
+   * server has one to report.
+   */
+  rollbackGuard?: RollbackGuard
+  /**
    * Per-table row arrays. Keys are table names: `blocks`, `transactions`,
-   * `instructions`, `logs`, `balances`, `token_balances`, `rewards`.
+   * `instruction_calls`, `logs`, `account_activity`, `rewards`.
    */
   tables: Record<string, Array<RowObject>>
 }
+
+/**
+ * Reorg guard attached to query responses: the server's in-memory head
+ * window (its last block, plus the first slot of the window and that slot's
+ * parent hash), so a consumer can detect a fork and unwind before committing.
+ * Shape mirrors the EVM client's rollbackGuard with Solana naming.
+ */
+export interface RollbackGuard {
+  /** The last slot in the server's in-memory window. */
+  slotNumber: number
+  /** Timestamp of the last block. */
+  timestamp: number
+  /** Blockhash of the last block (base58). */
+  blockhash: string
+  /** The first slot in the server's in-memory window. */
+  firstSlotNumber: number
+  /** Previous blockhash of the first block in the window (base58). */
+  firstPreviousBlockhash: string
+}
+
+/** One decoded row: column name (`snake_case`) to value. */
+export type RowObject = Record<string, unknown>
 
 /**
  * Top-level Solana HyperSync query. Returns block bundles matching the
@@ -152,12 +197,13 @@ export interface SolanaQuery {
   transactions?: Array<TransactionSelection>
   logs?: Array<LogSelection>
   accountActivity?: Array<AccountActivitySelection>
-  includeAllBlocks?: boolean
   /**
-   * Return merged account activity for the matched result set without
-   * requiring `include_all_blocks`.
+   * @deprecated the server removed this flag; setting it to true is an
+   * error. Use `accountActivity: [{}]` to request every account activity
+   * row in range.
    */
   includeAccountActivity?: boolean
+  includeAllBlocks?: boolean
   /** Per-table field selection (which columns to return). */
   fieldSelection?: FieldSelection
   maxNumBlocks?: number

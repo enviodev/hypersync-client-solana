@@ -11,18 +11,36 @@ use crate::types::{ArrowResponseData, QueryResponse};
 ///
 /// Wire format:
 /// ```text
-/// [next_slot: u64 LE][num_tables: u32 LE]
+/// [next_slot: u64 LE][guard_len: u32 LE][guard: JSON, guard_len bytes]
+/// [num_tables: u32 LE]
 /// For each table:
 ///   [name_len: u32 LE][name: UTF-8][ipc_len: u64 LE][ipc_data: Arrow IPC file bytes]
 /// ```
+///
+/// `guard_len` is 0 when the server has no rollback guard to attach (its
+/// in-memory window is empty). The guard segment was added in the Wave 2 API
+/// lock, together with the response-table renames; there is no back-compat
+/// parse of the pre-guard framing.
 pub fn decode_response(data: &[u8]) -> Result<QueryResponse> {
     let mut pos = 0;
     let response_bytes = data.len();
 
-    anyhow::ensure!(data.len() >= 12, "data too short for header");
+    anyhow::ensure!(data.len() >= 16, "data too short for header");
 
     let next_slot = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
     pos += 8;
+    let guard_len = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
+    pos += 4;
+    let rollback_guard = if guard_len == 0 {
+        None
+    } else {
+        anyhow::ensure!(pos + guard_len <= data.len(), "truncated rollback guard");
+        let guard =
+            serde_json::from_slice(&data[pos..pos + guard_len]).context("parse rollback guard")?;
+        pos += guard_len;
+        Some(guard)
+    };
+    anyhow::ensure!(pos + 4 <= data.len(), "truncated table count");
     let num_tables = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
     pos += 4;
 
@@ -80,6 +98,7 @@ pub fn decode_response(data: &[u8]) -> Result<QueryResponse> {
 
     Ok(QueryResponse {
         next_slot,
+        rollback_guard,
         data: ArrowResponseData { tables },
         response_bytes,
     })

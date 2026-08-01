@@ -10,16 +10,23 @@ use hypersync_client_solana::decode::{
     anchor_idl::legacy_discriminator, decode_instruction, schema_from_anchor_idl_json, FieldType,
     ProgramSchema,
 };
-use hypersync_client_solana::simple_types::Instruction;
+use hypersync_client_solana::simple_types::{Address, InstructionCall};
 use serde_json::json;
 
-/// Build the bare-minimum `Instruction` the decoder needs. Fields the
+/// A deterministic valid base58 account address per seed. Account arguments
+/// are typed `Address` now, so fixtures must be real 32-byte pubkeys; asserts
+/// compare against the same `ta(seed)` value.
+fn ta(seed: u8) -> String {
+    Address([seed; 32]).to_string()
+}
+
+/// Build the bare-minimum `InstructionCall` the decoder needs. Fields the
 /// decoder ignores (slot, transaction_index, etc.) are left default.
-fn instr_from(program_id: &str, data: Vec<u8>, accounts: Vec<&str>) -> Instruction {
-    Instruction {
-        program_id: program_id.to_string(),
-        accounts: accounts.into_iter().map(str::to_string).collect(),
-        data,
+fn instr_from(program_id: &str, data: Vec<u8>, accounts: Vec<String>) -> InstructionCall {
+    InstructionCall {
+        executing_account: program_id.parse().ok(),
+        account_arguments: Some(accounts.iter().map(|a| a.parse().unwrap()).collect()),
+        data: Some(data),
         ..Default::default()
     }
 }
@@ -84,11 +91,7 @@ fn modern_idl_parses_and_decodes() {
     data.extend_from_slice(&42u64.to_le_bytes()); // size
     data.extend_from_slice(&7u32.to_le_bytes()); // count
 
-    let ix = instr_from(
-        &schema.program_id,
-        data,
-        vec!["AccThing", "AccPayer", "AccExtra"],
-    );
+    let ix = instr_from(&schema.program_id, data, vec![ta(1), ta(2), ta(3)]);
     let decoded = decode_instruction(&schema, &ix).expect("decode");
     assert_eq!(decoded.name, "create_thing");
     assert_eq!(
@@ -98,15 +101,9 @@ fn modern_idl_parses_and_decodes() {
             "count": 7
         })
     );
-    assert_eq!(
-        decoded.named_accounts.get("thing").map(|s| s.as_str()),
-        Some("AccThing")
-    );
-    assert_eq!(
-        decoded.named_accounts.get("payer").map(|s| s.as_str()),
-        Some("AccPayer")
-    );
-    assert_eq!(decoded.extra_accounts, vec!["AccExtra"]);
+    assert_eq!(decoded.named_accounts.get("thing"), Some(&ta(1)));
+    assert_eq!(decoded.named_accounts.get("payer"), Some(&ta(2)));
+    assert_eq!(decoded.extra_accounts, vec![ta(3)]);
 }
 
 const LEGACY_IDL: &str = r#"{
@@ -152,7 +149,7 @@ fn legacy_idl_computes_discriminator_from_name() {
     data.push(1); // b = true
     data.extend_from_slice(&pubkey_bytes); // key
 
-    let ix = instr_from("LegacyProgId", data, vec!["state_pk", "signer_pk"]);
+    let ix = instr_from("LegacyProgId", data, vec![ta(4), ta(5)]);
     let decoded = decode_instruction(&schema, &ix).expect("decode");
     assert_eq!(decoded.name, "initialize");
     assert_eq!(
@@ -209,7 +206,7 @@ fn legacy_snake_case_conversion() {
 fn unknown_discriminator_surfaces_full_probe_window() {
     let schema = schema_from_anchor_idl_json(MODERN_IDL).expect("parse");
     let bogus_data = vec![0xaa; 16];
-    let ix = instr_from(&schema.program_id, bogus_data, vec!["a", "b"]);
+    let ix = instr_from(&schema.program_id, bogus_data, vec![ta(6), ta(7)]);
     let err = decode_instruction(&schema, &ix).unwrap_err();
     let msg = format!("{err}");
     assert!(msg.contains("unknown discriminator"), "got: {msg}");
@@ -223,7 +220,7 @@ fn too_few_accounts_errors() {
     let mut data: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8];
     data.push(0); // Alpha (unit)
     data.extend_from_slice(&0u32.to_le_bytes());
-    let ix = instr_from(&schema.program_id, data, vec!["only_one"]);
+    let ix = instr_from(&schema.program_id, data, vec![ta(8)]);
     let err = decode_instruction(&schema, &ix).unwrap_err();
     assert!(
         format!("{err}").contains("expects at least 2"),
@@ -294,7 +291,7 @@ fn anchor_roundtrip_via_borsh_derive() {
     };
     let mut data: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8];
     data.extend(borsh::to_vec(&args).expect("encode"));
-    let ix = instr_from(&schema.program_id, data, vec!["x", "y"]);
+    let ix = instr_from(&schema.program_id, data, vec![ta(9), ta(10)]);
     let decoded = decode_instruction(&schema, &ix).expect("decode");
     assert_eq!(
         decoded.args,

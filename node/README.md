@@ -26,19 +26,19 @@ const client = new SolanaClient({
 
   const resp = await client.query({
     fromSlot: height - 100,
-    instructions: [
+    instructionCalls: [
       {
-        programId: ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
+        executingAccount: ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
       },
     ],
     fieldSelection: {
-      instruction: ["slot", "transaction_index", "program_id", "data"],
+      instructionCall: ["slot", "transaction_index", "executing_account", "data"],
       transaction: ["slot", "transaction_index", "fee_payer"],
     },
   });
 
   console.log("next slot:", resp.nextSlot);
-  console.log("instructions:", resp.tables.instructions?.length ?? 0);
+  console.log("instruction calls:", resp.tables.instruction_calls?.length ?? 0);
   console.log("transactions:", resp.tables.transactions?.length ?? 0);
 })();
 ```
