@@ -7,6 +7,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.3] - 2026-07-28
+
+Supersedes 0.2.0-rc.2, which shipped a stricter unknown-field policy than we
+kept. The only difference is the scope of `deny_unknown_fields`: rc.2 applied
+it to the per-selection structs as well, rc.3 scopes it to the query envelope.
+Prefer rc.3.
+
+### Added
+
+- `net-types`: `AccountActivitySelection` gains `kind` (`native` / `token`),
+  `transaction_id`, and the four position flags (`is_signer`, `is_writable`,
+  `is_fee_payer`, `from_lookup_table`).
+  - `kind` uses the same predicate the ingest de-merge uses, so a query filter
+    and a de-merge always agree on what a native row is. A row carrying both
+    sides matches either value, which makes `kind: ["native"]` exactly the row
+    set the removed `balances` table held, and `kind: ["token"]` the row set
+    `token_balances` held. That is the intended migration for anyone who used
+    the split tables to get one side.
+  - The flags are `Option<bool>`. A row whose flag is null - the source could
+    not derive it - matches neither `true` nor `false`, because unknown is not
+    the same as false.
+  - Note this filters the response, not the parquet read: there is no
+    row-group index on nullness, so a `kind`-filtered query still scans the
+    slot range. It removes the rows from the response and from the join key
+    set, not the bytes read from disk.
+
+### Changed
+
+- **Breaking:** the query envelope - `SolanaQuery` and `SolanaFieldSelection` -
+  now denies unknown fields. A query naming a table or field this version does
+  not understand is rejected instead of silently becoming a different query.
+  This was motivated by the table removal above: a client still sending
+  `balances: [...]` previously deserialized to a query with *no* filters,
+  which the server answers with the entire slot range.
+  - The per-selection structs deliberately stay lenient, so callers still
+    sending the legacy per-selection `include_*` join flags - accepted and
+    ignored for several releases - keep working across this upgrade. The
+    known cost is that a misspelled filter field inside a selection is
+    ignored rather than rejected, which for an AND-ed selection means it
+    matches more rows than intended. That boundary is deliberate: the
+    envelope catches removed tables, selections stay tolerant.
+  - The renames stay wire-compatible - serde aliases are known field names, so
+    `instructions`, `program_id` and `field_selection.instruction` still
+    deserialize.
+
+
+## [0.2.0-rc.1] - 2026-07-28
+
+Release candidate. Breaking: the `balances` and `token_balances` tables are
+removed and everything they carried is served from `account_activity`.
+
+### Removed
+
+- `schema`: `balance()` and `token_balance()`, their `TABLE_NAMES` entries and
+  `schema_for_table` arms. `TABLE_NAMES` is now 6 tables. `table-registry`
+  follows automatically.
+- `net-types`: `BalanceField`, `TokenBalanceField`, `BalanceSelection`,
+  `TokenBalanceSelection`, the `balances` / `token_balances` selection arrays,
+  `include_balances` / `include_token_balances`, and `max_num_balances` /
+  `max_num_token_balances`.
+- `client`: `Balance`, `TokenBalance`, `balances_from_arrow`,
+  `token_balances_from_arrow`, the two decode arms and the two
+  `QueryResponse` fields.
+- `node`: the two selections, their field-selection entries, include flags and
+  `maxNum` caps, plus their `index.d.ts` declarations.
+
+### Added
+
+- `net-types`: `AccountActivityField` (18 variants, locked to the parquet
+  schema by this crate's coverage test), `AccountActivitySelection`
+  (`account` / `mint` / `owner` / `program_id`), `include_account_activity`
+  and `max_num_account_activity`.
+- `net-types`: `physical_column_name` is now public. Two Wave 2 field renames
+  read a column spelled differently from the field (`executing_account` ->
+  `program_id`, `account_arguments` -> `accounts`), and that mapping previously
+  existed only inside this crate's tests, so a server turning a field selection
+  into a column projection had no correct way to do it.
+- `client`: `AccountActivity`, `QueryResponse.account_activity`,
+  `account_activity_from_arrow` and the `"account_activity"` decode arm. Every
+  column but `slot` is read optionally, so a projected response decodes with
+  the absent fields `None`.
+- `node`: `AccountActivitySelection`, `fieldSelection.accountActivity`,
+  `accountActivity`, `includeAccountActivity`, `maxNumAccountActivity`.
+
+### Migration
+
+- `balances: [{account: [A]}]` -> `account_activity: [{account: [A]}]`.
+- `token_balances: [{mint: [M]}]` -> `account_activity: [{mint: [M]}]`. A
+  non-empty `mint` / `owner` / `program_id` filter selects token rows, since
+  native-only rows leave those columns null.
+- A single `account_activity` selection expresses what previously needed a
+  `balances` selection and a `token_balances` selection joined together.
+  Fields within one selection are AND-ed, so "everything for wallet W" is two
+  selections: `[{account: [W]}, {owner: [W]}]` - on a native row `account` is
+  the wallet, on a token row it is the token account.
+- Response field `balances` / `token_balances` -> `account_activity`. Native
+  columns (`pre_balance` / `post_balance`) are null on token-only rows and the
+  token columns are null on native-only rows; a row where an account had both
+  a lamport change and a token movement carries both sides.
+- Renamed columns: `pre` / `post` -> `pre_balance` / `post_balance`,
+  `pre_amount` / `post_amount` -> `pre_token_balance` / `post_token_balance`.
+- New columns with no legacy equivalent: `transaction_id`, `account_index`,
+  `is_signer`, `is_writable`, `is_fee_payer`, `from_lookup_table`,
+  `token_decimals`.
+- Note for servers: `account_activity` carries roughly 4x the rows of
+  `balances`, so with the same `max_num_*` cap a range query pages more often.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added

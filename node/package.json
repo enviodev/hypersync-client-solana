@@ -1,6 +1,6 @@
 {
   "name": "@envio-dev/hypersync-client-solana",
-  "version": "0.1.0",
+  "version": "0.2.0-rc.3",
   "description": "Node.js client for Solana HyperSync by Envio",
   "main": "index.js",
   "types": "index.d.ts",

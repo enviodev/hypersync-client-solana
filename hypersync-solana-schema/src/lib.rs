@@ -100,34 +100,6 @@ pub fn log() -> SchemaRef {
     ]))
 }
 
-pub fn balance() -> SchemaRef {
-    Arc::new(Schema::new(vec![
-        Field::new("slot", DataType::UInt64, false),
-        Field::new("transaction_index", DataType::UInt32, true),
-        Field::new("account", DataType::Utf8, true),
-        Field::new("pre", DataType::UInt64, true),
-        Field::new("post", DataType::UInt64, true),
-    ]))
-}
-
-pub fn token_balance() -> SchemaRef {
-    Arc::new(Schema::new(vec![
-        Field::new("slot", DataType::UInt64, false),
-        Field::new("transaction_index", DataType::UInt32, true),
-        Field::new("account", DataType::Utf8, true),
-        Field::new("mint", DataType::Utf8, true),
-        Field::new("owner", DataType::Utf8, true),
-        // Amounts are decimal strings (not u64) so Token-2022 balances that
-        // exceed u64::MAX in base units round-trip without truncation.
-        Field::new("pre_amount", DataType::Utf8, true),
-        Field::new("post_amount", DataType::Utf8, true),
-        // Owning token program (classic SPL Token vs Token-2022). Pre/post are
-        // separate because an account can be reinitialized mid-transaction.
-        Field::new("pre_program_id", DataType::Utf8, true),
-        Field::new("post_program_id", DataType::Utf8, true),
-    ]))
-}
-
 /// Unified per-(transaction, account) activity table (v1).
 ///
 /// Merges native SOL balance changes (`balances`) and SPL token balance
@@ -145,6 +117,15 @@ pub fn account_activity() -> SchemaRef {
         Field::new("account_index", DataType::UInt32, true),
         Field::new("account", DataType::Utf8, true),
         // Native SOL (null when no native change on this account in this tx).
+        //
+        // Deliberately NOT shared with pre/post_token_balance below. The native
+        // and token sides are independent axes, not two encodings of one value:
+        // a single row commonly carries both, since a token account also holds
+        // lamports. Wrapped SOL is the clearest case - lamports equal the token
+        // amount plus the rent-exempt reserve, so the two differ by a constant
+        // and both are needed. Even where they coincide the units differ:
+        // lamports are always 1e-9 SOL, whereas a token amount is in raw base
+        // units scaled by `token_decimals` on the same row.
         Field::new("pre_balance", DataType::UInt64, true),
         Field::new("post_balance", DataType::UInt64, true),
         // Header-derived flags (null only if not derivable).
@@ -156,7 +137,9 @@ pub fn account_activity() -> SchemaRef {
         Field::new("mint", DataType::Utf8, true),
         Field::new("owner", DataType::Utf8, true),
         Field::new("token_decimals", DataType::UInt8, true),
-        // Raw u64 as decimal string (Token-2022 base units can exceed u64).
+        // Raw base units, carried verbatim as the decimal string the source
+        // reported, so no parse step can fail or silently coerce. See the note
+        // on pre_balance for why this is a separate column, not a reuse of it.
         Field::new("pre_token_balance", DataType::Utf8, true),
         Field::new("post_token_balance", DataType::Utf8, true),
         Field::new("pre_program_id", DataType::Utf8, true),
@@ -181,8 +164,6 @@ pub const TABLE_NAMES: &[&str] = &[
     "transactions",
     "instructions",
     "logs",
-    "balances",
-    "token_balances",
     "account_activity",
     "rewards",
 ];
@@ -194,8 +175,6 @@ pub fn schema_for_table(table: &str) -> Option<SchemaRef> {
         "transactions" => Some(transaction()),
         "instructions" => Some(instruction()),
         "logs" => Some(log()),
-        "balances" => Some(balance()),
-        "token_balances" => Some(token_balance()),
         "account_activity" => Some(account_activity()),
         "rewards" => Some(reward()),
         _ => None,

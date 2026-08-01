@@ -4,6 +4,7 @@ use strum_macros::{Display, EnumString, VariantArray};
 /// Per-table field selection: which columns to include in the response.
 /// If a table's field list is empty, all columns are returned.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SolanaFieldSelection {
     #[serde(default)]
     pub block: Vec<BlockField>,
@@ -15,9 +16,7 @@ pub struct SolanaFieldSelection {
     #[serde(default)]
     pub log: Vec<LogField>,
     #[serde(default)]
-    pub balance: Vec<BalanceField>,
-    #[serde(default)]
-    pub token_balance: Vec<TokenBalanceField>,
+    pub account_activity: Vec<AccountActivityField>,
     #[serde(default)]
     pub reward: Vec<RewardField>,
 }
@@ -57,10 +56,26 @@ impl SolanaFieldSelection {
             transaction: physical(DERIVED_TRANSACTION_FIELDS),
             instruction_call: physical(DERIVED_INSTRUCTION_FIELDS),
             log: physical(&[]),
-            balance: physical(&[]),
-            token_balance: physical(&[]),
+            account_activity: physical(&[]),
             reward: physical(&[]),
         }
+    }
+}
+
+/// Map a field's wire name to the parquet column it selects.
+///
+/// The Wave 2 renames gave two instruction fields clearer wire names than the
+/// stored columns they read (`executing_account` -> `program_id`,
+/// `account_arguments` -> `accounts`); every other field matches its column
+/// name. Servers must resolve through this when turning a field selection into
+/// a column projection, or a renamed field silently projects to nothing.
+/// Fields with no physical column (the derived ones) map to themselves and
+/// simply will not be found in a parquet schema.
+pub fn physical_column_name(wire: &str) -> &str {
+    match wire {
+        "executing_account" => "program_id",
+        "account_arguments" => "accounts",
+        other => other,
     }
 }
 
@@ -195,6 +210,11 @@ pub enum LogField {
     Message,
 }
 
+/// Columns of the unified `account_activity` table: one row per
+/// (transaction, account), carrying the native SOL change, the SPL token
+/// balance, or both. Variant names must stay spelled exactly like the parquet
+/// column names (strum derives snake_case); the schema-coverage test locks
+/// this enum to `hypersync_solana_schema::account_activity()`.
 #[derive(
     Debug,
     Clone,
@@ -210,37 +230,23 @@ pub enum LogField {
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
-pub enum BalanceField {
+pub enum AccountActivityField {
     Slot,
     TransactionIndex,
+    TransactionId,
+    AccountIndex,
     Account,
-    Pre,
-    Post,
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    Display,
-    EnumString,
-    VariantArray,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum TokenBalanceField {
-    Slot,
-    TransactionIndex,
-    Account,
+    PreBalance,
+    PostBalance,
+    IsSigner,
+    IsWritable,
+    IsFeePayer,
+    FromLookupTable,
     Mint,
     Owner,
-    PreAmount,
-    PostAmount,
+    TokenDecimals,
+    PreTokenBalance,
+    PostTokenBalance,
     PreProgramId,
     PostProgramId,
 }
@@ -282,16 +288,6 @@ mod schema_coverage {
 
     use super::*;
 
-    /// Wire name -> physical column name for the Wave 2 renames. Everything
-    /// else matches by its snake_case name.
-    fn physical_name(wire: String) -> String {
-        match wire.as_str() {
-            "executing_account" => "program_id".to_owned(),
-            "account_arguments" => "accounts".to_owned(),
-            other => other.to_owned(),
-        }
-    }
-
     fn column_names(schema: arrow::datatypes::SchemaRef) -> Vec<String> {
         schema.fields().iter().map(|f| f.name().clone()).collect()
     }
@@ -303,7 +299,7 @@ mod schema_coverage {
         let columns = column_names(schema);
         let mapped: Vec<String> = selected
             .iter()
-            .map(|f| physical_name(f.to_string()))
+            .map(|f| physical_column_name(&f.to_string()).to_owned())
             .collect();
         assert_eq!(
             mapped, columns,
@@ -314,7 +310,7 @@ mod schema_coverage {
         // physical" without updating the classification).
         for v in T::VARIANTS {
             if !selected.contains(v) {
-                let wire = physical_name(v.to_string());
+                let wire = physical_column_name(&v.to_string()).to_owned();
                 assert!(
                     !columns.contains(&wire),
                     "{table}: variant `{v}` is classified derived but `{wire}` is a physical column"
@@ -338,11 +334,10 @@ mod schema_coverage {
             hypersync_solana_schema::instruction(),
         );
         assert_table("log", &sel.log, hypersync_solana_schema::log());
-        assert_table("balance", &sel.balance, hypersync_solana_schema::balance());
         assert_table(
-            "token_balance",
-            &sel.token_balance,
-            hypersync_solana_schema::token_balance(),
+            "account_activity",
+            &sel.account_activity,
+            hypersync_solana_schema::account_activity(),
         );
         assert_table("reward", &sel.reward, hypersync_solana_schema::reward());
     }
