@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.4] - 2026-08-01
+
+The Wave 2 API lock: wire names, physical names and client types are aligned
+into the shape the server will keep. Everything here rides the full re-sync,
+so no legacy mapping layers survive.
+
+### Changed
+
+- **Breaking:** table `instructions` is now `instruction_calls`; columns
+  `program_id` -> `executing_account`, `accounts` -> `account_arguments`,
+  `is_committed` -> `tx_success` on it. Legacy names are still accepted on
+  query input via serde aliases; responses use the new names only.
+- **Breaking:** `account_activity.owner` is split into `pre_owner` /
+  `post_owner`; the collapsed column is gone.
+- **Breaking:** every response-side field is `Option<T>`; addresses, hashes
+  and signatures decode into base58 newtypes (`Address`, `Hash`,
+  `Signature`) with strict, loud parsing; token balances are u64 base units
+  carried as strings (they exceed the JS safe-integer range).
+- **Breaking (node):** `includeAccountActivity` now errors with guidance
+  (use `accountActivity: [{}]`); field-selection values use the new column
+  names; the response table key is `instruction_calls`.
+- `transaction_index` is the dense `0..n` rank over stored non-vote
+  transactions of the slot, uniform across server ingest sources.
+
+### Added
+
+- Stored columns on `instruction_calls`: `executing_account_index`,
+  `account_index_arguments`, `error`, `compute_units_consumed`; on
+  `transactions`: `has_dropped_log_messages`.
+- Serve-time derived fields: `transaction_id` (`signatures[0]`) on
+  transactions and `token_state`
+  (`not_a_token` / `opened` / `closed` / `persisted`) on account activity.
+- `rollback_guard` on responses (arrow framing carries a guard segment),
+  describing the server's in-memory head window; can be absent.
+- `InstructionCall::stack_height()` accessor; typed filter values
+  throughout the query structs; node typings declare `RowObject`.
+
+### Removed
+
+- **Breaking:** the `include_account_activity` query flag. An empty
+  `AccountActivitySelection` (`account_activity: [{}]`) requests every
+  activity row in range without forcing blocks into the response.
+
 ## [0.2.0-rc.3] - 2026-07-28
 
 Supersedes 0.2.0-rc.2, which shipped a stricter unknown-field policy than we
