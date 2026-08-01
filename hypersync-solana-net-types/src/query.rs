@@ -131,13 +131,16 @@ pub struct InstructionSelection {
     /// - Some(false): only instructions of failed transactions
     ///
     /// `tx_success` says nothing about the individual instruction: Solana
-    /// metadata only records instructions that actually executed, so a failed
-    /// transaction's rows are precisely the instructions that ran before the
-    /// failure point, and every one of them has `tx_success = false`. Failed
-    /// transactions land on chain and are served by default; consumers that
-    /// count effects (transfers, mints, state changes) must filter
-    /// `tx_success: true`, because instructions of failed transactions had
-    /// their state changes rolled back.
+    /// metadata only records instructions that actually executed, and every
+    /// instruction row of a failed transaction has `tx_success = false`.
+    ///
+    /// NOTE: under the server's failed-transaction trim policy the store
+    /// keeps no instruction rows for failed transactions at all, so
+    /// `Some(false)` matches nothing there. Failed transactions themselves
+    /// are still served (with `err` and fee) via the transactions table's
+    /// `success` filter. Instruction rows all having `tx_success = true` on
+    /// such a store also means the filter is a no-op; it remains for stores
+    /// ingested without the trim.
     ///
     /// Renamed from `is_committed`; the legacy key is still accepted on input
     /// via a serde alias.

@@ -115,8 +115,10 @@ export interface InstructionSelection {
   /**
    * Success of the PARENT transaction. None: match instructions of both
    * successful and failed transactions. true: successful only. false:
-   * failed only. Instructions of failed transactions had their state
-   * changes rolled back, so consumers that count effects should set true.
+   * failed only. NOTE: servers running the failed-transaction trim store
+   * no instruction rows for failed transactions, so `false` matches
+   * nothing there; query failed transactions via the transactions table's
+   * `success` filter instead.
    */
   txSuccess?: boolean
   /**
