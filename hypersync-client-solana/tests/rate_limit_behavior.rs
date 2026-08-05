@@ -38,15 +38,6 @@ async fn spawn_server(script: Vec<Scripted>) -> (String, Arc<AtomicUsize>) {
             let Ok((mut stream, _)) = listener.accept().await else {
                 return;
             };
-            let n = hits_srv.fetch_add(1, Ordering::SeqCst);
-            let (status, headers, body) = {
-                let script = script.lock().expect("script mutex");
-                script
-                    .get(n)
-                    .or_else(|| script.last())
-                    .expect("script must not be empty")
-                    .clone()
-            };
 
             // Drain the request: headers, then content-length body bytes.
             let mut buf = Vec::new();
@@ -61,21 +52,32 @@ async fn spawn_server(script: Vec<Scripted>) -> (String, Arc<AtomicUsize>) {
                     break Some(pos + 4);
                 }
             };
-            if let Some(body_start) = body_start {
-                let head = String::from_utf8_lossy(&buf[..body_start]).to_lowercase();
-                let content_length: usize = head
-                    .lines()
-                    .find_map(|l| l.strip_prefix("content-length:"))
-                    .and_then(|v| v.trim().parse().ok())
-                    .unwrap_or(0);
-                while buf.len() < body_start + content_length {
-                    let read = stream.read(&mut chunk).await.unwrap_or(0);
-                    if read == 0 {
-                        break;
-                    }
-                    buf.extend_from_slice(&chunk[..read]);
+            let Some(body_start) = body_start else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&buf[..body_start]).to_lowercase();
+            let content_length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
+            while buf.len() < body_start + content_length {
+                let read = stream.read(&mut chunk).await.unwrap_or(0);
+                if read == 0 {
+                    break;
                 }
+                buf.extend_from_slice(&chunk[..read]);
             }
+
+            let n = hits_srv.fetch_add(1, Ordering::SeqCst);
+            let (status, headers, body) = {
+                let script = script.lock().expect("script mutex");
+                script
+                    .get(n)
+                    .or_else(|| script.last())
+                    .expect("script must not be empty")
+                    .clone()
+            };
 
             let reason = match status {
                 200 => "OK",
@@ -175,6 +177,27 @@ async fn with_rate_limit_hits_server_when_proactive_sleep_disabled() {
         2,
         "with proactive sleep disabled every call must reach the server"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wait_for_rate_limit_waits_only_for_the_active_window() {
+    let headers = vec![("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1")];
+    let (url, _hits) = spawn_server(vec![(429, headers, Vec::new())]).await;
+    let client = make_client(url, true);
+
+    let result = client
+        .get_arrow_with_rate_limit(&SolanaQuery::default())
+        .await
+        .expect("observe rate limit");
+    assert!(matches!(result, RateLimitResponse::RateLimited(_)));
+
+    let started = std::time::Instant::now();
+    client.wait_for_rate_limit().await;
+    assert!(started.elapsed() >= Duration::from_secs(1));
+
+    tokio::time::timeout(Duration::from_millis(100), client.wait_for_rate_limit())
+        .await
+        .expect("elapsed window must not be waited twice");
 }
 
 #[tokio::test(flavor = "multi_thread")]
