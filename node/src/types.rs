@@ -101,3 +101,44 @@ fn record_batch_to_rows(batch: &RecordBatch) -> Result<Vec<RowObject>> {
         serde_json::from_slice(&buf).context("parse arrow-JSON output as row objects")?;
     Ok(rows)
 }
+
+/// Rate limit information from response headers. Shape mirrors the EVM
+/// client's RateLimitInfo.
+#[napi(object)]
+#[derive(Default)]
+pub struct RateLimitInfo {
+    /// Total request quota for the current window (`x-ratelimit-limit`).
+    pub limit: Option<i64>,
+    /// Remaining budget in the current window (`x-ratelimit-remaining`).
+    /// Budget units, not request count: divide by `cost` for requests left.
+    pub remaining: Option<i64>,
+    /// Seconds until the window resets (`x-ratelimit-reset`).
+    pub reset_secs: Option<i64>,
+    /// Budget consumed per request (`x-ratelimit-cost`).
+    pub cost: Option<i64>,
+}
+
+impl From<hypersync_client_solana::RateLimitInfo> for RateLimitInfo {
+    fn from(info: hypersync_client_solana::RateLimitInfo) -> Self {
+        let clamp = |v: Option<u64>| v.and_then(|v| i64::try_from(v).ok());
+        Self {
+            limit: clamp(info.limit),
+            remaining: clamp(info.remaining),
+            reset_secs: clamp(info.reset_secs),
+            cost: clamp(info.cost),
+        }
+    }
+}
+
+/// Response from `queryWithRateLimit`.
+///
+/// When the server answers 429, `response` is absent and `rateLimit` carries
+/// the back-off headers; the client does NOT retry, so the caller can
+/// implement its own pacing.
+#[napi(object)]
+pub struct QueryWithRateLimitResponse {
+    /// The decoded response; absent when the request was rate limited.
+    pub response: Option<QueryResponse>,
+    /// Rate limit information from response headers (present either way).
+    pub rate_limit: RateLimitInfo,
+}

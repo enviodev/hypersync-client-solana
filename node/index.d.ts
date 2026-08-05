@@ -19,40 +19,49 @@ export declare class SolanaClient {
    * inspect `response.nextSlot` to know where to continue from.
    */
   query(query: SolanaQuery): Promise<QueryResponse>
+  /**
+   * Run a single query and return the decoded response along with rate
+   * limit information from the server.
+   *
+   * Unlike `query`, this method does NOT retry on HTTP 429: the returned
+   * object has no `response` and carries the back-off headers instead, so
+   * the caller can implement its own pacing. Other transient errors are
+   * still retried normally.
+   */
+  queryWithRateLimit(query: SolanaQuery): Promise<QueryWithRateLimitResponse>
 }
 
 /**
  * Filter for selecting rows of the merged `account_activity` table. All
  * non-empty fields are AND-ed. Because the table carries the native SOL and
- * SPL token sides on one row, one selection expresses what previously needed
- * a native-balance selection and a token-balance selection together.
+ * SPL token sides on one row, this replaces pairing a `BalanceSelection` with
+ * a `TokenBalanceSelection`.
  */
 export interface AccountActivitySelection {
   /**
-   * Restrict to rows carrying a given side of the merge: "native", "token",
-   * or both. A row carrying both sides matches either value, so `["native"]`
-   * is the row set the removed `balances` table held.
+   * Restrict to rows carrying a given side of the merge: "native",
+   * "token", or both. A row carrying both sides matches either value, so
+   * `["native"]` is the row set the removed `balances` table held.
    */
   kind?: Array<string>
   account?: Array<string>
   transactionId?: Array<string>
   mint?: Array<string>
   /**
-   * Matches either the pre or the post owner (the stored column is split so
-   * an in-transaction owner change stays visible).
+   * Matches either the pre or the post owner (the stored column is split
+   * so an in-transaction owner change stays visible).
    */
   owner?: Array<string>
   programId?: Array<string>
   /**
-   * Position flags. A row whose flag is null (the source could not derive it)
-   * matches neither true nor false.
+   * Position flags. A row whose flag is null (the source could not derive
+   * it) matches neither true nor false.
    */
   isSigner?: boolean
   isWritable?: boolean
   isFeePayer?: boolean
   fromLookupTable?: boolean
 }
-
 
 /** Configuration for the Solana HyperSync client. */
 export interface ClientConfig {
@@ -68,6 +77,11 @@ export interface ClientConfig {
   retryBaseMs?: number
   /** Maximum backoff between retries, in milliseconds. Default: 5000. */
   retryCeilingMs?: number
+  /**
+   * Whether to proactively sleep when the rate limit is exhausted instead
+   * of sending requests that will be rejected with 429. Default: true.
+   */
+  proactiveRateLimitSleep?: boolean
 }
 
 /**
@@ -115,10 +129,8 @@ export interface InstructionSelection {
   /**
    * Success of the PARENT transaction. None: match instructions of both
    * successful and failed transactions. true: successful only. false:
-   * failed only. NOTE: servers running the failed-transaction trim store
-   * no instruction rows for failed transactions, so `false` matches
-   * nothing there; query failed transactions via the transactions table's
-   * `success` filter instead.
+   * failed only. Instructions of failed transactions had their state
+   * changes rolled back, so consumers that count effects should set true.
    */
   txSuccess?: boolean
   /**
@@ -158,6 +170,38 @@ export interface QueryResponse {
 }
 
 /**
+ * Response from `queryWithRateLimit`.
+ *
+ * When the server answers 429, `response` is absent and `rateLimit` carries
+ * the back-off headers; the client does NOT retry, so the caller can
+ * implement its own pacing.
+ */
+export interface QueryWithRateLimitResponse {
+  /** The decoded response; absent when the request was rate limited. */
+  response?: QueryResponse
+  /** Rate limit information from response headers (present either way). */
+  rateLimit: RateLimitInfo
+}
+
+/**
+ * Rate limit information from response headers. Shape mirrors the EVM
+ * client's RateLimitInfo.
+ */
+export interface RateLimitInfo {
+  /** Total request quota for the current window (`x-ratelimit-limit`). */
+  limit?: number
+  /**
+   * Remaining budget in the current window (`x-ratelimit-remaining`).
+   * Budget units, not request count: divide by `cost` for requests left.
+   */
+  remaining?: number
+  /** Seconds until the window resets (`x-ratelimit-reset`). */
+  resetSecs?: number
+  /** Budget consumed per request (`x-ratelimit-cost`). */
+  cost?: number
+}
+
+/**
  * Reorg guard attached to query responses: the server's in-memory head
  * window (its last block, plus the first slot of the window and that slot's
  * parent hash), so a consumer can detect a fork and unwind before committing.
@@ -175,9 +219,6 @@ export interface RollbackGuard {
   /** Previous blockhash of the first block in the window (base58). */
   firstPreviousBlockhash: string
 }
-
-/** One decoded row: column name (`snake_case`) to value. */
-export type RowObject = Record<string, unknown>
 
 /**
  * Top-level Solana HyperSync query. Returns block bundles matching the

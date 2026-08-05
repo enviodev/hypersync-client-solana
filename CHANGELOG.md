@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Rate-limit surface mirroring the EVM `hypersync-client`:
+  - `Client::get_with_rate_limit` / `Client::get_arrow_with_rate_limit` return
+    a `RateLimitResponse` instead of retrying on HTTP 429, so consumers can
+    implement their own back-off. Other transient errors still retry.
+  - `RateLimitInfo` parsed from the `x-ratelimit-*` response headers on every
+    query response, and `Client::wait_for_rate_limit` to explicitly wait out
+    an exhausted window.
+  - `ClientConfig::proactive_rate_limit_sleep` (default `true`): skip sending
+    requests that would be rejected with 429 while the window is exhausted.
+    The `_with_rate_limit` methods return `RateLimited` proactively instead.
+  - Node bindings: `queryWithRateLimit` and the `proactiveRateLimitSleep`
+    config field.
+
 ## [0.2.0-rc.4] - 2026-08-01
 
 The Wave 2 API lock: wire names, physical names and client types are aligned

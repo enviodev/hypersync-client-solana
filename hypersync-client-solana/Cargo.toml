@@ -30,4 +30,5 @@ hypersync-solana-schema = { path = "../hypersync-solana-schema", version = "0.2.
 
 [dev-dependencies]
 borsh = { version = "1", features = ["derive"] }
+http = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
