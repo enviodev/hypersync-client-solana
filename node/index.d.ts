@@ -29,33 +29,43 @@ export declare class SolanaClient {
    * still retried normally.
    */
   queryWithRateLimit(query: SolanaQuery): Promise<QueryWithRateLimitResponse>
+  /**
+   * Get the most recently observed rate limit information.
+   * Returns null if no query response has included rate limit headers yet.
+   */
+  rateLimitInfo(): RateLimitInfo | null
+  /**
+   * Wait until the current rate limit window resets.
+   * Returns immediately if no rate limit info has been observed or quota remains.
+   */
+  waitForRateLimit(): Promise<void>
 }
 
 /**
  * Filter for selecting rows of the merged `account_activity` table. All
  * non-empty fields are AND-ed. Because the table carries the native SOL and
- * SPL token sides on one row, this replaces pairing a `BalanceSelection` with
- * a `TokenBalanceSelection`.
+ * SPL token sides on one row, one selection expresses what previously needed
+ * a native-balance selection and a token-balance selection together.
  */
 export interface AccountActivitySelection {
   /**
-   * Restrict to rows carrying a given side of the merge: "native",
-   * "token", or both. A row carrying both sides matches either value, so
-   * `["native"]` is the row set the removed `balances` table held.
+   * Restrict to rows carrying a given side of the merge: "native", "token",
+   * or both. A row carrying both sides matches either value, so `["native"]`
+   * is the row set the removed `balances` table held.
    */
   kind?: Array<string>
   account?: Array<string>
   transactionId?: Array<string>
   mint?: Array<string>
   /**
-   * Matches either the pre or the post owner (the stored column is split
-   * so an in-transaction owner change stays visible).
+   * Matches either the pre or the post owner (the stored column is split so
+   * an in-transaction owner change stays visible).
    */
   owner?: Array<string>
   programId?: Array<string>
   /**
-   * Position flags. A row whose flag is null (the source could not derive
-   * it) matches neither true nor false.
+   * Position flags. A row whose flag is null (the source could not derive it)
+   * matches neither true nor false.
    */
   isSigner?: boolean
   isWritable?: boolean
@@ -129,8 +139,10 @@ export interface InstructionSelection {
   /**
    * Success of the PARENT transaction. None: match instructions of both
    * successful and failed transactions. true: successful only. false:
-   * failed only. Instructions of failed transactions had their state
-   * changes rolled back, so consumers that count effects should set true.
+   * failed only. NOTE: servers running the failed-transaction trim store
+   * no instruction rows for failed transactions, so `false` matches
+   * nothing there; query failed transactions via the transactions table's
+   * `success` filter instead.
    */
   txSuccess?: boolean
   /**
@@ -219,6 +231,9 @@ export interface RollbackGuard {
   /** Previous blockhash of the first block in the window (base58). */
   firstPreviousBlockhash: string
 }
+
+/** One decoded row: column name (`snake_case`) to value. */
+export type RowObject = Record<string, unknown>
 
 /**
  * Top-level Solana HyperSync query. Returns block bundles matching the

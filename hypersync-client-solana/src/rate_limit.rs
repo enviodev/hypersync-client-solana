@@ -35,7 +35,7 @@ impl std::fmt::Display for RateLimitInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = Vec::new();
         if let (Some(remaining), Some(limit)) = (self.remaining, self.limit) {
-            let cost = self.cost.unwrap_or(1);
+            let cost = self.cost.filter(|cost| *cost > 0).unwrap_or(1);
             parts.push(format!(
                 "remaining={}/{} reqs",
                 remaining / cost,
@@ -192,5 +192,16 @@ mod tests {
     fn test_display_empty() {
         let info = RateLimitInfo::default();
         assert_eq!(info.to_string(), "");
+    }
+
+    #[test]
+    fn test_display_zero_cost_does_not_panic() {
+        let info = RateLimitInfo {
+            limit: Some(50),
+            remaining: Some(0),
+            cost: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(info.to_string(), "remaining=0/50 reqs");
     }
 }

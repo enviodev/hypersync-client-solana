@@ -111,6 +111,20 @@ impl SolanaClient {
             }),
         }
     }
+
+    /// Get the most recently observed rate limit information.
+    /// Returns null if no query response has included rate limit headers yet.
+    #[napi]
+    pub fn rate_limit_info(&self) -> Option<crate::types::RateLimitInfo> {
+        self.inner.rate_limit_info().map(Into::into)
+    }
+
+    /// Wait until the current rate limit window resets.
+    /// Returns immediately if no rate limit info has been observed or quota remains.
+    #[napi]
+    pub async fn wait_for_rate_limit(&self) {
+        self.inner.wait_for_rate_limit().await;
+    }
 }
 
 fn map_err(e: anyhow::Error) -> napi::Error {

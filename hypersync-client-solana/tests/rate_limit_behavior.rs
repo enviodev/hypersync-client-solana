@@ -189,12 +189,26 @@ async fn plain_get_arrow_waits_out_a_429_and_retries() {
         (200, Vec::new(), empty_response_body()),
     ];
     let (url, hits) = spawn_server(script).await;
-    let client = make_client(url, true);
+    let client = Client::new(ClientConfig {
+        url,
+        http_req_timeout: Duration::from_secs(5),
+        max_num_retries: 3,
+        // A rate-limit retry must use the server's reset delay, not also pay
+        // the generic exponential backoff used for other transient errors.
+        retry_base_ms: 10_000,
+        retry_ceiling_ms: 10_000,
+        proactive_rate_limit_sleep: true,
+        ..Default::default()
+    })
+    .expect("build client");
 
-    let resp = client
-        .get_arrow(&SolanaQuery::default())
-        .await
-        .expect("get_arrow must retry through the 429");
+    let resp = tokio::time::timeout(
+        Duration::from_secs(3),
+        client.get_arrow(&SolanaQuery::default()),
+    )
+    .await
+    .expect("rate-limit retry must not also use generic retry backoff")
+    .expect("get_arrow must retry through the 429");
     assert_eq!(
         (resp.next_slot, hits.load(Ordering::SeqCst)),
         (7, 2),
@@ -236,5 +250,13 @@ async fn success_carries_rate_limit_headers() {
         ),
         (7, Some(50), Some(40), Some(12)),
         "success must carry both the decoded response and the quota headers"
+    );
+
+    let tracked = client
+        .rate_limit_info()
+        .expect("successful response headers must be tracked");
+    assert_eq!(
+        (tracked.limit, tracked.remaining, tracked.reset_secs),
+        (Some(50), Some(40), Some(12))
     );
 }

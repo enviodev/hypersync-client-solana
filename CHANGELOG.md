@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ClientConfig::proactive_rate_limit_sleep` (default `true`): skip sending
     requests that would be rejected with 429 while the window is exhausted.
     The `_with_rate_limit` methods return `RateLimited` proactively instead.
-  - Node bindings: `queryWithRateLimit` and the `proactiveRateLimitSleep`
-    config field.
+  - Node bindings: `queryWithRateLimit`, `rateLimitInfo`,
+    `waitForRateLimit`, and the `proactiveRateLimitSleep` config field.
 
 ## [0.2.0-rc.4] - 2026-08-01
 

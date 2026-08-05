@@ -254,7 +254,10 @@ impl Client {
     /// Executes the query POST once. 429 responses become
     /// [`PostError::RateLimited`] with the parsed rate limit headers; every
     /// response's headers are returned so callers can track their quota.
-    async fn post_once(&self, query: &SolanaQuery) -> std::result::Result<(Vec<u8>, RateLimitInfo), PostError> {
+    async fn post_once(
+        &self,
+        query: &SolanaQuery,
+    ) -> std::result::Result<(Vec<u8>, RateLimitInfo), PostError> {
         let url = format!("{}/query/arrow", self.inner.base_url);
         let resp = self
             .inner
@@ -310,11 +313,6 @@ impl Client {
         }
 
         for attempt in 0..=cfg.max_num_retries {
-            if attempt > 0 {
-                let delay_ms = cfg.retry_base_ms * 2u64.pow(attempt.min(5));
-                let delay_ms = delay_ms.min(cfg.retry_ceiling_ms);
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-            }
             match self.post_once(query).await {
                 Ok((bytes, rate_limit)) => {
                     self.update_rate_limit_state(&rate_limit);
@@ -335,11 +333,19 @@ impl Client {
                     last_err = Some(anyhow::anyhow!(
                         "rate limited by server ({rate_limit}). To increase your rate limits, upgrade your plan at https://envio.dev/app/api-tokens"
                     ));
-                    tokio::time::sleep(Duration::from_secs(wait_secs)).await;
+                    if attempt < cfg.max_num_retries {
+                        tokio::time::sleep(Duration::from_secs(wait_secs)).await;
+                    }
+                    continue;
                 }
                 Err(PostError::Other(e)) => {
                     tracing::warn!(attempt, error = ?e, "Query failed");
                     last_err = Some(e);
+                    if attempt < cfg.max_num_retries {
+                        let delay_ms = cfg.retry_base_ms * 2u64.pow((attempt + 1).min(5));
+                        let delay_ms = delay_ms.min(cfg.retry_ceiling_ms);
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    }
                 }
             }
         }
@@ -347,6 +353,18 @@ impl Client {
         Err(PostError::Other(last_err.unwrap_or_else(|| {
             anyhow::anyhow!("query failed after retries")
         })))
+    }
+
+    /// Returns the most recently observed rate limit information, if any.
+    ///
+    /// Updated after every query response that contains rate limit headers.
+    pub fn rate_limit_info(&self) -> Option<RateLimitInfo> {
+        self.inner
+            .rate_limit_state
+            .lock()
+            .expect("rate_limit_state mutex poisoned")
+            .as_ref()
+            .map(|(info, _captured_at)| info.clone())
     }
 
     /// Waits until the current rate limit window resets, if the client is rate limited.
@@ -385,11 +403,10 @@ impl Client {
                     let elapsed = captured_at.elapsed().as_secs();
                     secs.saturating_sub(elapsed)
                 });
-                if remaining_wait.unwrap_or(0) > 0 {
-                    Some(info.clone())
-                } else {
-                    None
-                }
+                let remaining_wait = remaining_wait.filter(|secs| *secs > 0)?;
+                let mut current = info.clone();
+                current.reset_secs = Some(remaining_wait);
+                Some(current)
             }
             _ => None,
         }
@@ -401,6 +418,7 @@ impl Client {
         if rate_limit.limit.is_some()
             || rate_limit.remaining.is_some()
             || rate_limit.reset_secs.is_some()
+            || rate_limit.cost.is_some()
         {
             let mut state = self
                 .inner
@@ -479,4 +497,38 @@ fn decode_response_tables(arrow: QueryResponse) -> Result<SolanaResponse> {
         }
     }
     Ok(resp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proactive_rate_limit_info_accounts_for_elapsed_time() {
+        let client = Client::new(ClientConfig {
+            url: "http://127.0.0.1".to_owned(),
+            ..Default::default()
+        })
+        .expect("build client");
+        let captured_at = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("instant supports subtraction");
+        *client
+            .inner
+            .rate_limit_state
+            .lock()
+            .expect("rate_limit_state mutex") = Some((
+            RateLimitInfo {
+                remaining: Some(0),
+                reset_secs: Some(30),
+                ..Default::default()
+            },
+            captured_at,
+        ));
+
+        let current = client
+            .proactive_rate_limit_info()
+            .expect("window is still active");
+        assert!(matches!(current.reset_secs, Some(19..=20)));
+    }
 }
