@@ -24,6 +24,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Node bindings: `getWithRateLimit`, `rateLimitInfo`, `waitForRateLimit`,
     and the `proactiveRateLimitSleep` config field.
 
+### Changed
+
+- **Breaking (Node)**: the client surface is now named to match the EVM
+  `@envio-dev/hypersync-client`, so `get` and `getWithRateLimit` read as the
+  pair they are:
+  - `client.query(q)` -> `client.get(q)`
+  - `SolanaClient.createWithAgent(cfg, ua)` -> `SolanaClient.newWithAgent(cfg, ua)`
+  - `config.bearerToken` -> `config.apiToken`
+
+### Fixed
+
+- `node/index.d.ts` is generated again rather than hand-maintained. Two doc
+  comments had been edited in the `.d.ts` without updating the Rust source they
+  are generated from (the `txSuccess` failed-transaction-trim note and the
+  `AccountActivitySelection` summary), so any `napi build` silently reverted
+  them, and the `RowObject` type was referenced but never declared. The Rust
+  doc comments now carry the shipped text, and `RowObject` is declared via a
+  `--dts-header` file wired into the build scripts.
+
 ## [0.2.0-rc.4] - 2026-08-01
 
 The Wave 2 API lock: wire names, physical names and client types are aligned

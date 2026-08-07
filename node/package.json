@@ -28,8 +28,8 @@
   },
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
+    "build": "napi build --platform --release --dts-header \"$(cat dts-header.txt)\"",
+    "build:debug": "napi build --platform --dts-header \"$(cat dts-header.txt)\"",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version"
   },
