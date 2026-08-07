@@ -203,6 +203,11 @@ async fn proactive_sleep_delays_the_next_request_until_the_window_resets() {
     let (url, hits) = spawn_server(script).await;
     let client = make_client_with_retries(url, true, 0);
 
+    // Time from before the request that records the window. The client's clock
+    // starts when the 429 lands, and the remaining wait is computed in whole
+    // seconds: if more than a second passes here the window has genuinely
+    // elapsed and a correct client skips the wait entirely.
+    let window_started = std::time::Instant::now();
     assert!(
         client.get_arrow(&SolanaQuery::default()).await.is_err(),
         "first call observes the exhausted window"
@@ -211,13 +216,12 @@ async fn proactive_sleep_delays_the_next_request_until_the_window_resets() {
 
     // The window has not elapsed, so the next call must wait it out before
     // sending rather than spending a request on a certain 429.
-    let started = std::time::Instant::now();
     client
         .get_arrow(&SolanaQuery::default())
         .await
         .expect("second call succeeds after the window resets");
     assert!(
-        started.elapsed() >= Duration::from_secs(1),
+        window_started.elapsed() >= Duration::from_secs(1),
         "the second call must wait out the reset window before sending"
     );
     assert_eq!(hits.load(Ordering::SeqCst), 2);
