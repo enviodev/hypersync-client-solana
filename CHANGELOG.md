@@ -9,18 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Rate-limit surface mirroring the EVM `hypersync-client`:
+- Rate-limit surface mirroring the EVM `hypersync-client`, name for name and
+  shape for shape, so consumers need no per-client branch:
   - `Client::get_with_rate_limit` / `Client::get_arrow_with_rate_limit` return
-    a `RateLimitResponse` instead of retrying on HTTP 429, so consumers can
-    implement their own back-off. Other transient errors still retry.
+    `QueryResponseWithRateLimit { response, rate_limit }`. Retry and back-off
+    behaviour is identical to the plain `get`/`get_arrow`: a 429 is slept out
+    against `x-ratelimit-reset` and retried.
   - `RateLimitInfo` parsed from the `x-ratelimit-*` response headers on every
     query response, and `Client::wait_for_rate_limit` to explicitly wait out
     an exhausted window.
-  - `ClientConfig::proactive_rate_limit_sleep` (default `true`): skip sending
-    requests that would be rejected with 429 while the window is exhausted.
-    The `_with_rate_limit` methods return `RateLimited` proactively instead.
-  - Node bindings: `queryWithRateLimit`, `rateLimitInfo`,
-    `waitForRateLimit`, and the `proactiveRateLimitSleep` config field.
+  - `ClientConfig::proactive_rate_limit_sleep` (default `true`): wait out a
+    known-exhausted window before sending, rather than spending a request on a
+    certain 429.
+  - Every rate-limit wait is bounded by `MAX_RATE_LIMIT_WAIT_SECS` (60s), so a
+    hostile or mistaken `x-ratelimit-reset` cannot stall the caller. The HTTP
+    request timeout does not cover these sleeps.
+  - Node bindings: `getWithRateLimit`, `rateLimitInfo`, `waitForRateLimit`,
+    and the `proactiveRateLimitSleep` config field.
 
 ## [0.2.0-rc.4] - 2026-08-01
 

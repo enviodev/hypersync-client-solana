@@ -130,15 +130,12 @@ impl From<hypersync_client_solana::RateLimitInfo> for RateLimitInfo {
     }
 }
 
-/// Response from `queryWithRateLimit`.
-///
-/// When the server answers 429, `response` is absent and `rateLimit` carries
-/// the back-off headers; the client does NOT retry, so the caller can
-/// implement its own pacing.
+/// Response from `getWithRateLimit`. Shape mirrors the EVM client's
+/// `QueryResponseWithRateLimit`.
 #[napi(object)]
-pub struct QueryWithRateLimitResponse {
-    /// The decoded response; absent when the request was rate limited.
-    pub response: Option<QueryResponse>,
-    /// Rate limit information from response headers (present either way).
+pub struct QueryResponseWithRateLimit {
+    /// The decoded query response.
+    pub response: QueryResponse,
+    /// Rate limit information from response headers.
     pub rate_limit: RateLimitInfo,
 }

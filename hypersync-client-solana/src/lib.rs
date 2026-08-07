@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use config::{ClientConfig, StreamConfig};
 use hypersync_solana_net_types::query::SolanaQuery;
-pub use rate_limit::{RateLimitInfo, RateLimitResponse};
+pub use rate_limit::{QueryResponseWithRateLimit, RateLimitInfo, MAX_RATE_LIMIT_WAIT_SECS};
 use simple_types::SolanaResponse;
 use types::QueryResponse;
 
@@ -102,13 +102,26 @@ impl Client {
 
     /// Execute a single query and return Arrow data.
     pub async fn get_arrow(&self, query: &SolanaQuery) -> Result<QueryResponse> {
-        const WAIT_ON_RATE_LIMIT: bool = true;
-        let (resp_bytes, _) = self
-            .post_with_retry(query, WAIT_ON_RATE_LIMIT)
+        Ok(self.get_arrow_with_rate_limit(query).await?.response)
+    }
+
+    /// Executes query with retries and returns the response in Arrow format
+    /// along with rate limit information from the server.
+    ///
+    /// This is useful for consumers that want to inspect rate limit headers and
+    /// implement their own rate limiting logic in external systems. Retry and
+    /// back-off behaviour is identical to [`get_arrow`](Self::get_arrow):
+    /// a 429 is slept out against `x-ratelimit-reset` and retried.
+    pub async fn get_arrow_with_rate_limit(
+        &self,
+        query: &SolanaQuery,
+    ) -> Result<QueryResponseWithRateLimit<QueryResponse>> {
+        let (resp_bytes, rate_limit) = self
+            .post_with_retry(query)
             .await
             .map_err(|e| match e {
-                // Unreachable while waiting on rate limits, but keep the
-                // message useful if that invariant ever changes.
+                // post_with_retry only surfaces RateLimited once the retries are
+                // spent, so this is the "still rate limited after N attempts" case.
                 PostError::RateLimited(info) => anyhow::anyhow!(
                     "rate limited by server ({info}). To increase your rate limits, upgrade your plan at https://envio.dev/app/api-tokens"
                 ),
@@ -116,56 +129,29 @@ impl Client {
             })
             .context("query arrow")?;
 
-        arrow_reader::decode_response(&resp_bytes).context("decode arrow response")
+        let response =
+            arrow_reader::decode_response(&resp_bytes).context("decode arrow response")?;
+        Ok(QueryResponseWithRateLimit {
+            response,
+            rate_limit,
+        })
     }
 
-    /// Executes query and returns the response in Arrow format along with
+    /// Executes query with retries and returns typed Rust structs along with
     /// rate limit information from the server.
     ///
-    /// Unlike [`get_arrow`](Self::get_arrow), this method does **not** retry on
-    /// HTTP 429 responses. Instead it returns
-    /// [`RateLimitResponse::RateLimited`] so the caller can implement their own
-    /// back-off. Other transient errors are still retried normally.
-    pub async fn get_arrow_with_rate_limit(
-        &self,
-        query: &SolanaQuery,
-    ) -> Result<RateLimitResponse<QueryResponse>> {
-        const WAIT_ON_RATE_LIMIT: bool = false;
-        match self.post_with_retry(query, WAIT_ON_RATE_LIMIT).await {
-            Ok((resp_bytes, rate_limit)) => {
-                let response =
-                    arrow_reader::decode_response(&resp_bytes).context("decode arrow response")?;
-                Ok(RateLimitResponse::Success {
-                    response,
-                    rate_limit,
-                })
-            }
-            Err(PostError::RateLimited(info)) => Ok(RateLimitResponse::RateLimited(info)),
-            Err(PostError::Other(e)) => Err(e.context("query arrow")),
-        }
-    }
-
-    /// Executes query and returns typed Rust structs along with rate limit
-    /// information from the server.
-    ///
-    /// Unlike [`get`](Self::get), this method does **not** retry on HTTP 429
-    /// responses. Instead it returns
-    /// [`RateLimitResponse::RateLimited`] so the caller can implement their own
-    /// back-off. Other transient errors are still retried normally.
+    /// This is useful for consumers that want to inspect rate limit headers and
+    /// implement their own rate limiting logic in external systems. Retry and
+    /// back-off behaviour is identical to [`get`](Self::get).
     pub async fn get_with_rate_limit(
         &self,
         query: &SolanaQuery,
-    ) -> Result<RateLimitResponse<SolanaResponse>> {
-        match self.get_arrow_with_rate_limit(query).await? {
-            RateLimitResponse::Success {
-                response,
-                rate_limit,
-            } => Ok(RateLimitResponse::Success {
-                response: decode_response_tables(response)?,
-                rate_limit,
-            }),
-            RateLimitResponse::RateLimited(info) => Ok(RateLimitResponse::RateLimited(info)),
-        }
+    ) -> Result<QueryResponseWithRateLimit<SolanaResponse>> {
+        let result = self.get_arrow_with_rate_limit(query).await?;
+        Ok(QueryResponseWithRateLimit {
+            response: decode_response_tables(result.response)?,
+            rate_limit: result.rate_limit,
+        })
     }
 
     /// Execute a query that may span many server responses, paginating automatically.
@@ -291,25 +277,23 @@ impl Client {
 
     /// Executes the query with retries.
     ///
-    /// When `wait_on_rate_limit` is `true` (the plain `get`/`get_arrow` path),
-    /// a 429 sleeps until the window resets and retries. When `false` (the
-    /// `_with_rate_limit` path), a 429 is returned immediately as
-    /// [`PostError::RateLimited`] so the caller can implement their own
-    /// back-off. Other transient errors are retried either way.
+    /// A 429 sleeps until the window resets (bounded by
+    /// [`MAX_RATE_LIMIT_WAIT_SECS`]) and retries; other transient errors use
+    /// the generic exponential back-off. Once the retries are spent, a trailing
+    /// 429 surfaces as [`PostError::RateLimited`] so callers can report the
+    /// quota headers.
     async fn post_with_retry(
         &self,
         query: &SolanaQuery,
-        wait_on_rate_limit: bool,
     ) -> std::result::Result<(Vec<u8>, RateLimitInfo), PostError> {
         let cfg = &self.inner.config;
-        let mut last_err = None;
+        // The most recent failure, kept so the caller sees why the last attempt
+        // failed rather than an arbitrary earlier one.
+        let mut last_err: Option<PostError> = None;
 
+        // Proactive throttling: if we know we're rate limited, wait before sending.
         if cfg.proactive_rate_limit_sleep {
-            if wait_on_rate_limit {
-                self.wait_for_rate_limit().await;
-            } else if let Some(rate_limit) = self.proactive_rate_limit_info() {
-                return Err(PostError::RateLimited(rate_limit));
-            }
+            self.wait_for_rate_limit().await;
         }
 
         for attempt in 0..=cfg.max_num_retries {
@@ -320,19 +304,14 @@ impl Client {
                 }
                 Err(PostError::RateLimited(rate_limit)) => {
                     self.update_rate_limit_state(&rate_limit);
-                    if !wait_on_rate_limit {
-                        return Err(PostError::RateLimited(rate_limit));
-                    }
-                    let wait_secs = rate_limit.suggested_wait_secs().unwrap_or(1) + 1;
+                    let wait_secs = rate_limit.capped_wait_secs().unwrap_or(1) + 1;
                     tracing::warn!(
                         attempt,
                         %rate_limit,
                         wait_secs,
                         "rate limited by server, waiting before retry. To increase your rate limits, upgrade your plan at https://envio.dev/app/api-tokens. For more info: https://docs.envio.dev/docs/HyperSync/api-tokens"
                     );
-                    last_err = Some(anyhow::anyhow!(
-                        "rate limited by server ({rate_limit}). To increase your rate limits, upgrade your plan at https://envio.dev/app/api-tokens"
-                    ));
+                    last_err = Some(PostError::RateLimited(rate_limit));
                     if attempt < cfg.max_num_retries {
                         tokio::time::sleep(Duration::from_secs(wait_secs)).await;
                     }
@@ -340,7 +319,7 @@ impl Client {
                 }
                 Err(PostError::Other(e)) => {
                     tracing::warn!(attempt, error = ?e, "Query failed");
-                    last_err = Some(e);
+                    last_err = Some(PostError::Other(e));
                     if attempt < cfg.max_num_retries {
                         let delay_ms = cfg.retry_base_ms * 2u64.pow((attempt + 1).min(5));
                         let delay_ms = delay_ms.min(cfg.retry_ceiling_ms);
@@ -350,19 +329,26 @@ impl Client {
             }
         }
 
-        Err(PostError::Other(last_err.unwrap_or_else(|| {
-            anyhow::anyhow!("query failed after retries")
-        })))
+        Err(last_err
+            .unwrap_or_else(|| PostError::Other(anyhow::anyhow!("query failed after retries"))))
+    }
+
+    /// Locks the rate limit state, recovering from a poisoned mutex.
+    ///
+    /// The state is advisory metadata, so a stale value is always preferable to
+    /// bricking every later call on a client whose lock holder happened to panic.
+    fn lock_rate_limit_state(&self) -> std::sync::MutexGuard<'_, Option<(RateLimitInfo, Instant)>> {
+        self.inner
+            .rate_limit_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Returns the most recently observed rate limit information, if any.
     ///
     /// Updated after every query response that contains rate limit headers.
     pub fn rate_limit_info(&self) -> Option<RateLimitInfo> {
-        self.inner
-            .rate_limit_state
-            .lock()
-            .expect("rate_limit_state mutex poisoned")
+        self.lock_rate_limit_state()
             .as_ref()
             .map(|(info, _captured_at)| info.clone())
     }
@@ -375,9 +361,12 @@ impl Client {
     ///
     /// This method is useful for consumers who want to explicitly wait before making
     /// requests, for example when coordinating rate limits across multiple systems.
+    ///
+    /// The wait is bounded by [`MAX_RATE_LIMIT_WAIT_SECS`], so a hostile or
+    /// mistaken `x-ratelimit-reset` cannot stall the caller indefinitely.
     pub async fn wait_for_rate_limit(&self) {
         if let Some(info) = self.proactive_rate_limit_info() {
-            let secs = info.suggested_wait_secs().unwrap_or(0);
+            let secs = info.capped_wait_secs().unwrap_or(0);
             if secs > 0 {
                 tracing::warn!(
                     rate_limit = %info,
@@ -392,11 +381,7 @@ impl Client {
     /// Returns the last observed rate limit info when the quota is exhausted
     /// and the window has not elapsed since the observation.
     fn proactive_rate_limit_info(&self) -> Option<RateLimitInfo> {
-        let state = self
-            .inner
-            .rate_limit_state
-            .lock()
-            .expect("rate_limit_state mutex poisoned");
+        let state = self.lock_rate_limit_state();
         match state.as_ref() {
             Some((info, captured_at)) if info.is_rate_limited() => {
                 let remaining_wait = info.suggested_wait_secs().map(|secs| {
@@ -420,12 +405,7 @@ impl Client {
             || rate_limit.reset_secs.is_some()
             || rate_limit.cost.is_some()
         {
-            let mut state = self
-                .inner
-                .rate_limit_state
-                .lock()
-                .expect("rate_limit_state mutex poisoned");
-            *state = Some((rate_limit.clone(), Instant::now()));
+            *self.lock_rate_limit_state() = Some((rate_limit.clone(), Instant::now()));
         }
     }
 

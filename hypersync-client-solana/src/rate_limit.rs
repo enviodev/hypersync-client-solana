@@ -79,6 +79,13 @@ impl RateLimitInfo {
         self.reset_secs
     }
 
+    /// Same as [`suggested_wait_secs`](Self::suggested_wait_secs), clamped to
+    /// [`MAX_RATE_LIMIT_WAIT_SECS`]. This is what the client actually sleeps.
+    pub fn capped_wait_secs(&self) -> Option<u64> {
+        self.suggested_wait_secs()
+            .map(|secs| secs.min(MAX_RATE_LIMIT_WAIT_SECS))
+    }
+
     /// Parses `x-ratelimit-limit` which uses IETF draft format: `"60, 60;w=60"`.
     /// Extracts the first integer before the comma.
     fn parse_limit_header(res: &reqwest::Response) -> Option<u64> {
@@ -94,23 +101,31 @@ impl RateLimitInfo {
     }
 }
 
-/// Response from a `_with_rate_limit` method.
+/// Upper bound for any single rate-limit sleep, in seconds.
 ///
-/// On a successful query the `Success` variant contains both the response data
-/// and the rate limit headers. When the server responds with HTTP 429, the
-/// `RateLimited` variant is returned immediately (without internal retry) so
-/// the caller can implement their own back-off.
+/// `x-ratelimit-reset` is server-controlled and `http_req_timeout` does not
+/// cover the sleep that follows a 429, so an unclamped value would stall the
+/// calling task for as long as the server asks (and the retry loop repeats the
+/// sleep up to `max_num_retries` times). Waits are clamped to this bound in
+/// both the retry path and [`Client::wait_for_rate_limit`](crate::Client::wait_for_rate_limit);
+/// a longer window simply costs an extra 429 round trip instead of a stall.
+pub const MAX_RATE_LIMIT_WAIT_SECS: u64 = 60;
+
+/// Response that includes rate limit information from the server.
+///
+/// Returned by [`Client::get_with_rate_limit`](crate::Client::get_with_rate_limit)
+/// and [`Client::get_arrow_with_rate_limit`](crate::Client::get_arrow_with_rate_limit).
+/// Use this when you need to inspect rate limit headers for external monitoring
+/// or coordination across systems.
+///
+/// Mirrors the EVM `hypersync-client` type of the same name, field for field,
+/// so consumers can share back-off logic across both clients.
 #[derive(Debug, Clone)]
-pub enum RateLimitResponse<T> {
-    /// The query succeeded.
-    Success {
-        /// The query response data.
-        response: T,
-        /// Rate limit information from response headers (if present).
-        rate_limit: RateLimitInfo,
-    },
-    /// The server responded with 429 Too Many Requests.
-    RateLimited(RateLimitInfo),
+pub struct QueryResponseWithRateLimit<T> {
+    /// The query response data.
+    pub response: T,
+    /// Rate limit information from response headers (if present).
+    pub rate_limit: RateLimitInfo,
 }
 
 #[cfg(test)]
@@ -165,6 +180,31 @@ mod tests {
 
         let info = RateLimitInfo::default();
         assert_eq!(info.suggested_wait_secs(), None);
+    }
+
+    #[test]
+    fn test_capped_wait_secs() {
+        let under = RateLimitInfo {
+            reset_secs: Some(MAX_RATE_LIMIT_WAIT_SECS - 1),
+            ..Default::default()
+        };
+        assert_eq!(
+            under.capped_wait_secs(),
+            Some(MAX_RATE_LIMIT_WAIT_SECS - 1),
+            "a wait inside the bound is passed through untouched"
+        );
+
+        let hostile = RateLimitInfo {
+            reset_secs: Some(u64::MAX),
+            ..Default::default()
+        };
+        assert_eq!(
+            hostile.capped_wait_secs(),
+            Some(MAX_RATE_LIMIT_WAIT_SECS),
+            "a server-controlled reset must never stall the caller past the bound"
+        );
+
+        assert_eq!(RateLimitInfo::default().capped_wait_secs(), None);
     }
 
     #[test]

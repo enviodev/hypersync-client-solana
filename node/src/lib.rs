@@ -8,12 +8,12 @@ mod types;
 use std::sync::Arc;
 
 use anyhow::Context;
-use hypersync_client_solana::{Client as RsClient, RateLimitResponse};
+use hypersync_client_solana::Client as RsClient;
 use hypersync_solana_net_types::query::SolanaQuery as RsSolanaQuery;
 
 use crate::config::ClientConfig;
 use crate::query::SolanaQuery;
-use crate::types::{QueryResponse, QueryWithRateLimitResponse};
+use crate::types::{QueryResponse, QueryResponseWithRateLimit};
 
 /// Solana HyperSync client.
 #[napi]
@@ -77,39 +77,27 @@ impl SolanaClient {
     /// Run a single query and return the decoded response along with rate
     /// limit information from the server.
     ///
-    /// Unlike `query`, this method does NOT retry on HTTP 429: the returned
-    /// object has no `response` and carries the back-off headers instead, so
-    /// the caller can implement its own pacing. Other transient errors are
-    /// still retried normally.
+    /// Retry and back-off behaviour is identical to `query`: a 429 is slept out
+    /// against `x-ratelimit-reset` and retried. Named and shaped to match the
+    /// EVM client's `getWithRateLimit`.
     #[napi]
-    pub async fn query_with_rate_limit(
+    pub async fn get_with_rate_limit(
         &self,
         query: SolanaQuery,
-    ) -> napi::Result<QueryWithRateLimitResponse> {
+    ) -> napi::Result<QueryResponseWithRateLimit> {
         let rs_query: RsSolanaQuery = query.try_into().map_err(map_err)?;
-        match self
+        let res = self
             .inner
             .get_arrow_with_rate_limit(&rs_query)
             .await
             .context("run query")
-            .map_err(map_err)?
-        {
-            RateLimitResponse::Success {
-                response,
-                rate_limit,
-            } => Ok(QueryWithRateLimitResponse {
-                response: Some(
-                    QueryResponse::try_from(response)
-                        .context("convert response")
-                        .map_err(map_err)?,
-                ),
-                rate_limit: rate_limit.into(),
-            }),
-            RateLimitResponse::RateLimited(info) => Ok(QueryWithRateLimitResponse {
-                response: None,
-                rate_limit: info.into(),
-            }),
-        }
+            .map_err(map_err)?;
+        Ok(QueryResponseWithRateLimit {
+            response: QueryResponse::try_from(res.response)
+                .context("convert response")
+                .map_err(map_err)?,
+            rate_limit: res.rate_limit.into(),
+        })
     }
 
     /// Get the most recently observed rate limit information.

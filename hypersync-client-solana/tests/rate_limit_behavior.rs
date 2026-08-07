@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hypersync_client_solana::config::ClientConfig;
-use hypersync_client_solana::{Client, RateLimitResponse};
+use hypersync_client_solana::Client;
 use hypersync_solana_net_types::query::SolanaQuery;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -102,10 +102,18 @@ async fn spawn_server(script: Vec<Scripted>) -> (String, Arc<AtomicUsize>) {
 }
 
 fn make_client(url: String, proactive_rate_limit_sleep: bool) -> Client {
+    make_client_with_retries(url, proactive_rate_limit_sleep, 3)
+}
+
+fn make_client_with_retries(
+    url: String,
+    proactive_rate_limit_sleep: bool,
+    max_num_retries: u32,
+) -> Client {
     Client::new(ClientConfig {
         url,
         http_req_timeout: Duration::from_secs(5),
-        max_num_retries: 3,
+        max_num_retries,
         retry_base_ms: 10,
         retry_ceiling_ms: 50,
         proactive_rate_limit_sleep,
@@ -124,53 +132,113 @@ fn rate_limit_headers() -> Vec<(&'static str, &'static str)> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn with_rate_limit_returns_429_without_retry_then_skips_proactively() {
-    let (url, hits) = spawn_server(vec![(429, rate_limit_headers(), Vec::new())]).await;
+async fn with_rate_limit_retries_a_429_and_returns_the_quota_headers() {
+    // Same retry semantics as the plain path, matching the EVM client: the 429
+    // is slept out and retried, and the caller gets the response plus quota.
+    let script = vec![
+        (
+            429,
+            vec![("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "0")],
+            Vec::new(),
+        ),
+        (
+            200,
+            vec![
+                ("x-ratelimit-limit", "50, 50;w=60"),
+                ("x-ratelimit-remaining", "40"),
+                ("x-ratelimit-cost", "10"),
+            ],
+            empty_response_body(),
+        ),
+    ];
+    let (url, hits) = spawn_server(script).await;
     let client = make_client(url, true);
 
     let result = client
         .get_arrow_with_rate_limit(&SolanaQuery::default())
         .await
-        .expect("call");
-    let info = match result {
-        RateLimitResponse::RateLimited(info) => info,
-        RateLimitResponse::Success { .. } => panic!("expected RateLimited"),
-    };
+        .expect("the 429 must be retried, not surfaced");
     assert_eq!(
         (
-            info.limit,
-            info.remaining,
-            info.reset_secs,
-            info.cost,
+            result.response.next_slot,
+            result.rate_limit.limit,
+            result.rate_limit.remaining,
+            result.rate_limit.cost,
             hits.load(Ordering::SeqCst),
         ),
-        (Some(50), Some(0), Some(30), Some(10), 1),
-        "429 must be returned immediately with parsed headers, no retry"
-    );
-
-    // The window (30s) has not elapsed, so the next call must be answered from
-    // the tracked state without touching the server.
-    let result = client
-        .get_arrow_with_rate_limit(&SolanaQuery::default())
-        .await
-        .expect("call");
-    assert!(
-        matches!(result, RateLimitResponse::RateLimited(_)) && hits.load(Ordering::SeqCst) == 1,
-        "second call must be rejected proactively without a server hit"
+        (7, Some(50), Some(40), Some(10), 2),
+        "the returned quota must come from the response that actually succeeded"
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn with_rate_limit_hits_server_when_proactive_sleep_disabled() {
+async fn exhausted_retries_surface_the_rate_limit_message() {
     let (url, hits) = spawn_server(vec![(429, rate_limit_headers(), Vec::new())]).await;
-    let client = make_client(url, false);
+    // No retries: the single 429 is all the client gets.
+    let client = make_client_with_retries(url, true, 0);
+
+    let err = client
+        .get_arrow_with_rate_limit(&SolanaQuery::default())
+        .await
+        .err()
+        .expect("a 429 that outlives the retries must be an error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("rate limited by server") && msg.contains("remaining=0/5 reqs"),
+        "the error must name the quota so operators can act on it, got: {msg}"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn proactive_sleep_delays_the_next_request_until_the_window_resets() {
+    let script = vec![
+        (
+            429,
+            vec![("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1")],
+            Vec::new(),
+        ),
+        (200, Vec::new(), empty_response_body()),
+    ];
+    let (url, hits) = spawn_server(script).await;
+    let client = make_client_with_retries(url, true, 0);
+
+    assert!(
+        client.get_arrow(&SolanaQuery::default()).await.is_err(),
+        "first call observes the exhausted window"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+    // The window has not elapsed, so the next call must wait it out before
+    // sending rather than spending a request on a certain 429.
+    let started = std::time::Instant::now();
+    client
+        .get_arrow(&SolanaQuery::default())
+        .await
+        .expect("second call succeeds after the window resets");
+    assert!(
+        started.elapsed() >= Duration::from_secs(1),
+        "the second call must wait out the reset window before sending"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn no_proactive_sleep_when_disabled() {
+    let (url, hits) = spawn_server(vec![(429, rate_limit_headers(), Vec::new())]).await;
+    // reset=30 in the headers: with proactive sleep on, the second call would
+    // block for ~30s instead of returning.
+    let client = make_client_with_retries(url, false, 0);
 
     for _ in 0..2 {
-        let result = client
-            .get_arrow_with_rate_limit(&SolanaQuery::default())
-            .await
-            .expect("call");
-        assert!(matches!(result, RateLimitResponse::RateLimited(_)));
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            client.get_arrow(&SolanaQuery::default()),
+        )
+        .await
+        .expect("with proactive sleep disabled no call may block on the window")
+        .err()
+        .expect("server is still returning 429");
     }
     assert_eq!(
         hits.load(Ordering::SeqCst),
@@ -183,17 +251,19 @@ async fn with_rate_limit_hits_server_when_proactive_sleep_disabled() {
 async fn wait_for_rate_limit_waits_only_for_the_active_window() {
     let headers = vec![("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1")];
     let (url, _hits) = spawn_server(vec![(429, headers, Vec::new())]).await;
-    let client = make_client(url, true);
+    let client = make_client_with_retries(url, false, 0);
 
-    let result = client
-        .get_arrow_with_rate_limit(&SolanaQuery::default())
-        .await
-        .expect("observe rate limit");
-    assert!(matches!(result, RateLimitResponse::RateLimited(_)));
+    // Time from before the request that records the window, not after: the
+    // client's clock starts when the 429 lands, so measuring later can demand
+    // more than the wait a correct implementation owes us.
+    let window_started = std::time::Instant::now();
+    assert!(
+        client.get_arrow(&SolanaQuery::default()).await.is_err(),
+        "observe rate limit"
+    );
 
-    let started = std::time::Instant::now();
     client.wait_for_rate_limit().await;
-    assert!(started.elapsed() >= Duration::from_secs(1));
+    assert!(window_started.elapsed() >= Duration::from_secs(1));
 
     tokio::time::timeout(Duration::from_millis(100), client.wait_for_rate_limit())
         .await
@@ -257,13 +327,7 @@ async fn success_carries_rate_limit_headers() {
         .get_with_rate_limit(&SolanaQuery::default())
         .await
         .expect("call");
-    let (response, rate_limit) = match result {
-        RateLimitResponse::Success {
-            response,
-            rate_limit,
-        } => (response, rate_limit),
-        RateLimitResponse::RateLimited(_) => panic!("expected Success"),
-    };
+    let (response, rate_limit) = (result.response, result.rate_limit);
     assert_eq!(
         (
             response.next_slot,

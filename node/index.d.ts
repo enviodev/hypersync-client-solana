@@ -23,12 +23,11 @@ export declare class SolanaClient {
    * Run a single query and return the decoded response along with rate
    * limit information from the server.
    *
-   * Unlike `query`, this method does NOT retry on HTTP 429: the returned
-   * object has no `response` and carries the back-off headers instead, so
-   * the caller can implement its own pacing. Other transient errors are
-   * still retried normally.
+   * Retry and back-off behaviour is identical to `query`: a 429 is slept out
+   * against `x-ratelimit-reset` and retried. Named and shaped to match the
+   * EVM client's `getWithRateLimit`.
    */
-  queryWithRateLimit(query: SolanaQuery): Promise<QueryWithRateLimitResponse>
+  getWithRateLimit(query: SolanaQuery): Promise<QueryResponseWithRateLimit>
   /**
    * Get the most recently observed rate limit information.
    * Returns null if no query response has included rate limit headers yet.
@@ -182,16 +181,13 @@ export interface QueryResponse {
 }
 
 /**
- * Response from `queryWithRateLimit`.
- *
- * When the server answers 429, `response` is absent and `rateLimit` carries
- * the back-off headers; the client does NOT retry, so the caller can
- * implement its own pacing.
+ * Response from `getWithRateLimit`. Shape mirrors the EVM client's
+ * `QueryResponseWithRateLimit`.
  */
-export interface QueryWithRateLimitResponse {
-  /** The decoded response; absent when the request was rate limited. */
-  response?: QueryResponse
-  /** Rate limit information from response headers (present either way). */
+export interface QueryResponseWithRateLimit {
+  /** The decoded query response. */
+  response: QueryResponse
+  /** Rate limit information from response headers. */
   rateLimit: RateLimitInfo
 }
 
