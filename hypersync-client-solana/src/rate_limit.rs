@@ -79,13 +79,6 @@ impl RateLimitInfo {
         self.reset_secs
     }
 
-    /// Same as [`suggested_wait_secs`](Self::suggested_wait_secs), clamped to
-    /// [`MAX_RATE_LIMIT_WAIT_SECS`]. This is what the client actually sleeps.
-    pub fn capped_wait_secs(&self) -> Option<u64> {
-        self.suggested_wait_secs()
-            .map(|secs| secs.min(MAX_RATE_LIMIT_WAIT_SECS))
-    }
-
     /// Parses `x-ratelimit-limit` which uses IETF draft format: `"60, 60;w=60"`.
     /// Extracts the first integer before the comma.
     fn parse_limit_header(res: &reqwest::Response) -> Option<u64> {
@@ -100,16 +93,6 @@ impl RateLimitInfo {
         res.headers().get(name)?.to_str().ok()?.trim().parse().ok()
     }
 }
-
-/// Upper bound for any single rate-limit sleep, in seconds.
-///
-/// `x-ratelimit-reset` is server-controlled and `http_req_timeout` does not
-/// cover the sleep that follows a 429, so an unclamped value would stall the
-/// calling task for as long as the server asks (and the retry loop repeats the
-/// sleep up to `max_num_retries` times). Waits are clamped to this bound in
-/// both the retry path and [`Client::wait_for_rate_limit`](crate::Client::wait_for_rate_limit);
-/// a longer window simply costs an extra 429 round trip instead of a stall.
-pub const MAX_RATE_LIMIT_WAIT_SECS: u64 = 60;
 
 /// Response that includes rate limit information from the server.
 ///
@@ -171,6 +154,24 @@ mod tests {
     }
 
     #[test]
+    fn test_from_response_ignores_malformed_headers() {
+        let http_resp = http::Response::builder()
+            .header("x-ratelimit-limit", "not-a-number, 50;w=60")
+            .header("x-ratelimit-remaining", "-1")
+            .header("x-ratelimit-reset", "tomorrow")
+            .header("x-ratelimit-cost", "1.5")
+            .body("")
+            .unwrap();
+        let resp: reqwest::Response = http_resp.into();
+
+        let info = RateLimitInfo::from_response(&resp);
+        assert_eq!(
+            (info.limit, info.remaining, info.reset_secs, info.cost),
+            (None, None, None, None)
+        );
+    }
+
+    #[test]
     fn test_suggested_wait_secs() {
         let info = RateLimitInfo {
             reset_secs: Some(30),
@@ -180,31 +181,6 @@ mod tests {
 
         let info = RateLimitInfo::default();
         assert_eq!(info.suggested_wait_secs(), None);
-    }
-
-    #[test]
-    fn test_capped_wait_secs() {
-        let under = RateLimitInfo {
-            reset_secs: Some(MAX_RATE_LIMIT_WAIT_SECS - 1),
-            ..Default::default()
-        };
-        assert_eq!(
-            under.capped_wait_secs(),
-            Some(MAX_RATE_LIMIT_WAIT_SECS - 1),
-            "a wait inside the bound is passed through untouched"
-        );
-
-        let hostile = RateLimitInfo {
-            reset_secs: Some(u64::MAX),
-            ..Default::default()
-        };
-        assert_eq!(
-            hostile.capped_wait_secs(),
-            Some(MAX_RATE_LIMIT_WAIT_SECS),
-            "a server-controlled reset must never stall the caller past the bound"
-        );
-
-        assert_eq!(RateLimitInfo::default().capped_wait_secs(), None);
     }
 
     #[test]

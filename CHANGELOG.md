@@ -21,9 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ClientConfig::proactive_rate_limit_sleep` (default `true`): wait out a
     known-exhausted window before sending, rather than spending a request on a
     certain 429.
-  - Every rate-limit wait is bounded by `MAX_RATE_LIMIT_WAIT_SECS` (60s), so a
-    hostile or mistaken `x-ratelimit-reset` cannot stall the caller. The HTTP
-    request timeout does not cover these sleeps.
   - Node bindings: `getWithRateLimit`, `rateLimitInfo`, `waitForRateLimit`,
     and the `proactiveRateLimitSleep` config field.
 

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use hypersync_client_solana::config::ClientConfig;
+use hypersync_client_solana::config::{ClientConfig, StreamConfig};
 use hypersync_client_solana::Client;
 use hypersync_solana_net_types::query::SolanaQuery;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -177,17 +177,42 @@ async fn exhausted_retries_surface_the_rate_limit_message() {
     // No retries: the single 429 is all the client gets.
     let client = make_client_with_retries(url, true, 0);
 
-    let err = client
-        .get_arrow_with_rate_limit(&SolanaQuery::default())
-        .await
-        .err()
-        .expect("a 429 that outlives the retries must be an error");
+    let err = tokio::time::timeout(
+        Duration::from_secs(1),
+        client.get_arrow_with_rate_limit(&SolanaQuery::default()),
+    )
+    .await
+    .expect("the final attempt must not sleep when no retry remains")
+    .err()
+    .expect("a 429 that outlives the retries must be an error");
     let msg = format!("{err:?}");
     assert!(
         msg.contains("rate limited by server") && msg.contains("remaining=0/5 reqs"),
         "the error must name the quota so operators can act on it, got: {msg}"
     );
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn accumulated_error_includes_every_failed_attempt() {
+    let script = vec![
+        (500, Vec::new(), b"first failure".to_vec()),
+        (500, Vec::new(), b"second failure".to_vec()),
+    ];
+    let (url, hits) = spawn_server(script).await;
+    let client = make_client_with_retries(url, true, 1);
+
+    let err = client
+        .get_arrow(&SolanaQuery::default())
+        .await
+        .err()
+        .expect("both attempts fail");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("first failure") && msg.contains("second failure"),
+        "the caller must receive context from every attempt, got: {msg}"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -350,4 +375,114 @@ async fn success_carries_rate_limit_headers() {
         (tracked.limit, tracked.remaining, tracked.reset_secs),
         (Some(50), Some(40), Some(12))
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn success_without_headers_preserves_the_last_observed_quota() {
+    let script = vec![
+        (
+            200,
+            vec![
+                ("x-ratelimit-limit", "50, 50;w=60"),
+                ("x-ratelimit-remaining", "40"),
+                ("x-ratelimit-reset", "12"),
+            ],
+            empty_response_body(),
+        ),
+        (200, Vec::new(), empty_response_body()),
+    ];
+    let (url, hits) = spawn_server(script).await;
+    let client = make_client(url, true);
+
+    client
+        .get_arrow(&SolanaQuery::default())
+        .await
+        .expect("first call");
+    client
+        .get_arrow(&SolanaQuery::default())
+        .await
+        .expect("second call");
+
+    let tracked = client
+        .rate_limit_info()
+        .expect("a headerless success must not erase the previous quota");
+    assert_eq!(
+        (tracked.limit, tracked.remaining, tracked.reset_secs),
+        (Some(50), Some(40), Some(12))
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cost_only_headers_do_not_create_rate_limit_state() {
+    let script = vec![(200, vec![("x-ratelimit-cost", "10")], empty_response_body())];
+    let (url, _hits) = spawn_server(script).await;
+    let client = make_client(url, true);
+
+    let result = client
+        .get_arrow_with_rate_limit(&SolanaQuery::default())
+        .await
+        .expect("call");
+    assert_eq!(result.rate_limit.cost, Some(10));
+    assert!(
+        client.rate_limit_info().is_none(),
+        "cost alone does not count as rate limit state in the EVM client"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn non_429_errors_do_not_update_rate_limit_state() {
+    let (url, _hits) = spawn_server(vec![(500, rate_limit_headers(), b"failed".to_vec())]).await;
+    let client = make_client_with_retries(url, true, 0);
+
+    client
+        .get_arrow(&SolanaQuery::default())
+        .await
+        .err()
+        .expect("server error");
+    assert!(client.rate_limit_info().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_pages_use_the_rate_limit_retry_path() {
+    let script = vec![
+        (
+            429,
+            vec![("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "0")],
+            Vec::new(),
+        ),
+        (200, Vec::new(), empty_response_body()),
+    ];
+    let (url, hits) = spawn_server(script).await;
+    let client = Arc::new(make_client(url, true));
+    let query = SolanaQuery {
+        from_slot: 0,
+        to_slot: Some(1),
+        ..Default::default()
+    };
+    let mut stream = client.stream_arrow(
+        query,
+        StreamConfig {
+            concurrency: 1,
+            ..Default::default()
+        },
+    );
+
+    let response = tokio::time::timeout(Duration::from_secs(3), stream.recv())
+        .await
+        .expect("stream page must retry without generic backoff")
+        .expect("stream response")
+        .expect("successful page");
+    assert_eq!(response.next_slot, 7);
+    assert_eq!(hits.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_height_does_not_participate_in_rate_limit_state_tracking() {
+    let (url, hits) = spawn_server(vec![(429, rate_limit_headers(), Vec::new())]).await;
+    let client = make_client_with_retries(url, true, 0);
+
+    client.get_height().await.expect_err("height request fails");
+    assert!(client.rate_limit_info().is_none());
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
