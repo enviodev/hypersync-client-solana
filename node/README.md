@@ -17,14 +17,14 @@ const { SolanaClient } = require("@envio-dev/hypersync-client-solana");
 
 const client = new SolanaClient({
   url: "https://solana.hypersync.xyz",
-  // bearerToken: "<your-token>",
+  // apiToken: "<your-token>",
 });
 
 (async () => {
   const height = await client.getHeight();
   console.log("current slot:", height);
 
-  const resp = await client.query({
+  const resp = await client.get({
     fromSlot: height - 100,
     instructionCalls: [
       {
@@ -58,7 +58,7 @@ this directory.
 
 - `new SolanaClient(config)`
 - `client.getHeight(): Promise<number>`
-- `client.query(query): Promise<QueryResponse>`
+- `client.get(query): Promise<QueryResponse>`
 
 Field names on the JS objects are `camelCase`. Field names inside returned row
 objects are `snake_case` (they mirror the on-the-wire schema).
