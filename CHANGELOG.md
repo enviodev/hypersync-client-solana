@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-11
+
+Promotes the Wave 2 API locked in `0.2.0-rc.4` to stable and adds the
+rate-limit surface below.
+
 ### Added
 
 - Rate-limit surface mirroring the EVM `hypersync-client`, name for name and

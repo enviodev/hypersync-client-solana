@@ -480,9 +480,13 @@ async fn stream_pages_use_the_rate_limit_retry_path() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_height_does_not_participate_in_rate_limit_state_tracking() {
     let (url, hits) = spawn_server(vec![(429, rate_limit_headers(), Vec::new())]).await;
-    let client = make_client_with_retries(url, true, 0);
+    let client = make_client_with_retries(url, true, 1);
 
     client.get_height().await.expect_err("height request fails");
     assert!(client.rate_limit_info().is_none());
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        2,
+        "get_height uses generic retries, but none may update query rate-limit state"
+    );
 }
