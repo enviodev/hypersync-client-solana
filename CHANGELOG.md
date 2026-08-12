@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-08-11
+## [0.2.0] - 2026-08-12
 
 Promotes the Wave 2 API locked in `0.2.0-rc.4` to stable and adds the
 rate-limit surface below.
@@ -28,6 +28,13 @@ rate-limit surface below.
     certain 429.
   - Node bindings: `getWithRateLimit`, `rateLimitInfo`, `waitForRateLimit`,
     and the `proactiveRateLimitSleep` config field.
+
+### Fixed
+
+- `stream_arrow` / `collect_arrow` silently dropped the tail of any chunk the
+  server truncated (row/time caps, `next_slot < to_slot`), losing up to 99% of
+  rows on dense ranges. Each chunk is now paginated to completion by its own
+  worker; slot ordering is unchanged. (HOS-1834)
 
 ## [0.2.0-rc.4] - 2026-08-01
 
