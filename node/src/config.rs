@@ -18,6 +18,9 @@ pub struct ClientConfig {
     pub retry_base_ms: Option<i64>,
     /// Maximum backoff between retries, in milliseconds. Default: 5000.
     pub retry_ceiling_ms: Option<i64>,
+    /// Whether to proactively sleep when the rate limit is exhausted instead
+    /// of sending requests that will be rejected with 429. Default: true.
+    pub proactive_rate_limit_sleep: Option<bool>,
 }
 
 impl From<ClientConfig> for RustClientConfig {
@@ -42,6 +45,9 @@ impl From<ClientConfig> for RustClientConfig {
                 .retry_ceiling_ms
                 .map(|v| v.max(0) as u64)
                 .unwrap_or(default.retry_ceiling_ms),
+            proactive_rate_limit_sleep: c
+                .proactive_rate_limit_sleep
+                .unwrap_or(default.proactive_rate_limit_sleep),
         }
     }
 }

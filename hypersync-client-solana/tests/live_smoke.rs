@@ -22,6 +22,7 @@ fn make_client() -> Arc<Client> {
         max_num_retries: 3,
         retry_base_ms: 500,
         retry_ceiling_ms: 5_000,
+        ..Default::default()
     };
     Arc::new(Client::new(cfg).expect("build client"))
 }

@@ -15,6 +15,11 @@ pub struct ClientConfig {
     pub retry_base_ms: u64,
     /// Maximum delay for exponential backoff retries.
     pub retry_ceiling_ms: u64,
+    /// Whether to proactively sleep when the rate limit is exhausted instead of
+    /// sending requests that will be rejected with 429.
+    ///
+    /// Enabled by default. Set to `false` to opt out and handle rate limits yourself.
+    pub proactive_rate_limit_sleep: bool,
 }
 
 impl Default for ClientConfig {
@@ -26,6 +31,7 @@ impl Default for ClientConfig {
             max_num_retries: 12,
             retry_base_ms: 500,
             retry_ceiling_ms: 5_000,
+            proactive_rate_limit_sleep: true,
         }
     }
 }

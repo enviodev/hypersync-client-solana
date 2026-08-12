@@ -13,7 +13,7 @@ use hypersync_solana_net_types::query::SolanaQuery as RsSolanaQuery;
 
 use crate::config::ClientConfig;
 use crate::query::SolanaQuery;
-use crate::types::QueryResponse;
+use crate::types::{QueryResponse, QueryResponseWithRateLimit};
 
 /// Solana HyperSync client.
 #[napi]
@@ -72,6 +72,46 @@ impl SolanaClient {
         QueryResponse::try_from(resp)
             .context("convert response")
             .map_err(map_err)
+    }
+
+    /// Run a single query and return the decoded response along with rate
+    /// limit information from the server.
+    ///
+    /// Retry and back-off behaviour is identical to `query`: a 429 is slept out
+    /// against `x-ratelimit-reset` and retried. Named and shaped to match the
+    /// EVM client's `getWithRateLimit`.
+    #[napi]
+    pub async fn get_with_rate_limit(
+        &self,
+        query: SolanaQuery,
+    ) -> napi::Result<QueryResponseWithRateLimit> {
+        let rs_query: RsSolanaQuery = query.try_into().map_err(map_err)?;
+        let res = self
+            .inner
+            .get_arrow_with_rate_limit(&rs_query)
+            .await
+            .context("run query")
+            .map_err(map_err)?;
+        Ok(QueryResponseWithRateLimit {
+            response: QueryResponse::try_from(res.response)
+                .context("convert response")
+                .map_err(map_err)?,
+            rate_limit: res.rate_limit.into(),
+        })
+    }
+
+    /// Get the most recently observed rate limit information.
+    /// Returns null if no query response has included rate limit headers yet.
+    #[napi]
+    pub fn rate_limit_info(&self) -> Option<crate::types::RateLimitInfo> {
+        self.inner.rate_limit_info().map(Into::into)
+    }
+
+    /// Wait until the current rate limit window resets.
+    /// Returns immediately if no rate limit info has been observed or quota remains.
+    #[napi]
+    pub async fn wait_for_rate_limit(&self) {
+        self.inner.wait_for_rate_limit().await;
     }
 }
 

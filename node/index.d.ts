@@ -19,6 +19,25 @@ export declare class SolanaClient {
    * inspect `response.nextSlot` to know where to continue from.
    */
   query(query: SolanaQuery): Promise<QueryResponse>
+  /**
+   * Run a single query and return the decoded response along with rate
+   * limit information from the server.
+   *
+   * Retry and back-off behaviour is identical to `query`: a 429 is slept out
+   * against `x-ratelimit-reset` and retried. Named and shaped to match the
+   * EVM client's `getWithRateLimit`.
+   */
+  getWithRateLimit(query: SolanaQuery): Promise<QueryResponseWithRateLimit>
+  /**
+   * Get the most recently observed rate limit information.
+   * Returns null if no query response has included rate limit headers yet.
+   */
+  rateLimitInfo(): RateLimitInfo | null
+  /**
+   * Wait until the current rate limit window resets.
+   * Returns immediately if no rate limit info has been observed or quota remains.
+   */
+  waitForRateLimit(): Promise<void>
 }
 
 /**
@@ -53,7 +72,6 @@ export interface AccountActivitySelection {
   fromLookupTable?: boolean
 }
 
-
 /** Configuration for the Solana HyperSync client. */
 export interface ClientConfig {
   /** Base URL of the HyperSync server (e.g. "https://solana.hypersync.xyz"). */
@@ -68,6 +86,11 @@ export interface ClientConfig {
   retryBaseMs?: number
   /** Maximum backoff between retries, in milliseconds. Default: 5000. */
   retryCeilingMs?: number
+  /**
+   * Whether to proactively sleep when the rate limit is exhausted instead
+   * of sending requests that will be rejected with 429. Default: true.
+   */
+  proactiveRateLimitSleep?: boolean
 }
 
 /**
@@ -155,6 +178,35 @@ export interface QueryResponse {
    * `instruction_calls`, `logs`, `account_activity`, `rewards`.
    */
   tables: Record<string, Array<RowObject>>
+}
+
+/**
+ * Response from `getWithRateLimit`. Shape mirrors the EVM client's
+ * `QueryResponseWithRateLimit`.
+ */
+export interface QueryResponseWithRateLimit {
+  /** The decoded query response. */
+  response: QueryResponse
+  /** Rate limit information from response headers. */
+  rateLimit: RateLimitInfo
+}
+
+/**
+ * Rate limit information from response headers. Shape mirrors the EVM
+ * client's RateLimitInfo.
+ */
+export interface RateLimitInfo {
+  /** Total request quota for the current window (`x-ratelimit-limit`). */
+  limit?: number
+  /**
+   * Remaining budget in the current window (`x-ratelimit-remaining`).
+   * Budget units, not request count: divide by `cost` for requests left.
+   */
+  remaining?: number
+  /** Seconds until the window resets (`x-ratelimit-reset`). */
+  resetSecs?: number
+  /** Budget consumed per request (`x-ratelimit-cost`). */
+  cost?: number
 }
 
 /**

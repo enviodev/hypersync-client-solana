@@ -781,13 +781,14 @@ dependencies = [
 
 [[package]]
 name = "hypersync-client-solana"
-version = "0.2.0-rc.4"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arrow",
  "borsh",
  "bs58",
  "futures",
+ "http",
  "hypersync-solana-net-types",
  "hypersync-solana-schema",
  "reqwest",
@@ -801,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "hypersync-client-solana-node"
-version = "0.2.0-rc.4"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -817,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "hypersync-solana-net-types"
-version = "0.2.0-rc.4"
+version = "0.2.0"
 dependencies = [
  "arrow",
  "bs58",
@@ -831,7 +832,7 @@ dependencies = [
 
 [[package]]
 name = "hypersync-solana-schema"
-version = "0.2.0-rc.4"
+version = "0.2.0"
 dependencies = [
  "arrow",
 ]
