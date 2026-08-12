@@ -12,8 +12,12 @@ use hypersync_solana_net_types::query::SolanaQuery;
 
 /// Streams query results with concurrent fetching and adaptive batch sizing.
 ///
-/// Splits the slot range into chunks, fetches them concurrently, and dynamically
-/// adjusts the batch size based on response byte counts.
+/// Splits the slot range into disjoint chunks and fetches them concurrently.
+/// Each chunk is paginated to completion by its own worker: the server is free
+/// to truncate any response (row/time caps, `next_slot < to_slot`), and the
+/// worker keeps re-requesting from `next_slot` until its chunk is fully
+/// covered. Pages are forwarded chunk-by-chunk, so overall slot ordering is
+/// preserved. Batch size adapts to response byte counts.
 pub fn stream_arrow(
     client: Arc<Client>,
     query: SolanaQuery,
@@ -29,8 +33,8 @@ pub fn stream_arrow(
         let mut batch_size = config.batch_size;
 
         while current < to {
-            // Fill a window of concurrent requests
-            let mut futs = Vec::with_capacity(config.concurrency);
+            // Fill a window of concurrent chunk workers.
+            let mut chunks = Vec::with_capacity(config.concurrency);
             let mut chunk_end = current;
 
             for _ in 0..config.concurrency {
@@ -42,24 +46,54 @@ pub fn stream_arrow(
                 q.from_slot = chunk_end;
                 q.to_slot = Some(end);
 
+                // Small per-chunk buffer: workers ahead of the forwarding
+                // cursor can prefetch a little without unbounded memory use.
+                let (chunk_tx, chunk_rx) = mpsc::channel::<Result<QueryResponse>>(2);
                 let client = client.clone();
-                futs.push(tokio::spawn(async move { client.get_arrow(&q).await }));
+                let handle = tokio::spawn(async move {
+                    let mut cur = q.from_slot;
+                    let chunk_to = q.to_slot.expect("chunk to_slot is always set");
+                    // Drain the whole chunk. A response that ends short of
+                    // chunk_to was truncated by the server; continue from
+                    // next_slot instead of dropping the tail (HOS-1834).
+                    while cur < chunk_to {
+                        q.from_slot = cur;
+                        match client.get_arrow(&q).await {
+                            Ok(resp) => {
+                                if resp.next_slot <= cur {
+                                    let _ = chunk_tx
+                                        .send(Err(anyhow::anyhow!(
+                                            "server made no progress at slot {cur}"
+                                        )))
+                                        .await;
+                                    return;
+                                }
+                                cur = resp.next_slot;
+                                if chunk_tx.send(Ok(resp)).await.is_err() {
+                                    // Receiver dropped; stop fetching.
+                                    return;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = chunk_tx.send(Err(e)).await;
+                                return;
+                            }
+                        }
+                    }
+                });
+
+                chunks.push((chunk_rx, handle));
                 chunk_end = end;
             }
 
-            if futs.is_empty() {
+            if chunks.is_empty() {
                 break;
             }
 
-            // Await results in order to maintain slot ordering
-            for fut in futs {
-                let result = match fut.await {
-                    Ok(r) => r,
-                    Err(e) => Err(anyhow::anyhow!("task join error: {}", e)),
-                };
-
-                match &result {
-                    Ok(resp) => {
+            // Forward pages chunk-by-chunk to maintain slot ordering.
+            for (mut chunk_rx, handle) in chunks {
+                while let Some(result) = chunk_rx.recv().await {
+                    if let Ok(resp) = &result {
                         // Adaptive batch sizing based on response bytes
                         let bytes = resp.response_bytes as u64;
                         if bytes > config.response_bytes_ceiling
@@ -84,17 +118,21 @@ pub fn stream_arrow(
 
                         current = resp.next_slot;
                     }
-                    Err(_) => {
-                        // On error, send it and stop streaming
+
+                    let is_err = result.is_err();
+                    if tx.send(result).await.is_err() {
+                        tracing::warn!("Stream receiver dropped");
+                        return;
+                    }
+                    if is_err {
+                        return;
                     }
                 }
 
-                let is_err = result.is_err();
-                if tx.send(result).await.is_err() {
-                    tracing::warn!("Stream receiver dropped");
-                    return;
-                }
-                if is_err {
+                // Channel closed: surface a worker panic instead of silently
+                // treating its chunk as complete.
+                if let Err(e) = handle.await {
+                    let _ = tx.send(Err(anyhow::anyhow!("chunk task failed: {}", e))).await;
                     return;
                 }
             }
