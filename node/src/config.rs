@@ -8,8 +8,8 @@ use hypersync_client_solana::config::ClientConfig as RustClientConfig;
 pub struct ClientConfig {
     /// Base URL of the HyperSync server (e.g. "https://solana.hypersync.xyz").
     pub url: String,
-    /// Bearer token for authenticated requests.
-    pub bearer_token: Option<String>,
+    /// API token for authenticated requests. Sent as a bearer token.
+    pub api_token: Option<String>,
     /// Milliseconds to wait for a response before timing out. Default: 30000.
     pub http_req_timeout_millis: Option<i64>,
     /// Maximum number of retries per request. Default: 12.
@@ -28,7 +28,7 @@ impl From<ClientConfig> for RustClientConfig {
         let default = RustClientConfig::default();
         RustClientConfig {
             url: c.url,
-            bearer_token: c.bearer_token,
+            bearer_token: c.api_token,
             http_req_timeout: c
                 .http_req_timeout_millis
                 .map(|v| Duration::from_millis(v.max(0) as u64))

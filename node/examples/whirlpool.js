@@ -6,13 +6,13 @@ const WHIRLPOOL = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
 async function main() {
   const client = new SolanaClient({
     url: process.env.HYPERSYNC_URL ?? "https://solana.hypersync.xyz",
-    bearerToken: process.env.HYPERSYNC_BEARER_TOKEN,
+    apiToken: process.env.HYPERSYNC_API_TOKEN,
   });
 
   const height = await client.getHeight();
   const fromSlot = Math.max(0, height - 100);
 
-  const resp = await client.query({
+  const resp = await client.get({
     fromSlot,
     instructionCalls: [
       {

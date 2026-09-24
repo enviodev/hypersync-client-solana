@@ -36,9 +36,9 @@ impl SolanaClient {
 
     /// Create a new client with the given config and a custom user agent.
     ///
-    /// Mirrors the EVM and Fuel HyperSync clients' `createWithAgent`.
+    /// Mirrors the EVM HyperSync client's `newWithAgent`.
     #[napi(factory)]
-    pub fn create_with_agent(cfg: ClientConfig, user_agent: String) -> napi::Result<SolanaClient> {
+    pub fn new_with_agent(cfg: ClientConfig, user_agent: String) -> napi::Result<SolanaClient> {
         let inner = RsClient::new_with_agent(cfg.into(), user_agent)
             .context("build Solana HyperSync client")
             .map_err(map_err)?;
@@ -60,8 +60,11 @@ impl SolanaClient {
     ///
     /// The server may return fewer slots than the range you requested;
     /// inspect `response.nextSlot` to know where to continue from.
+    ///
+    /// Named to match the EVM HyperSync client's `get`, so `get` and
+    /// `getWithRateLimit` read as the pair they are.
     #[napi]
-    pub async fn query(&self, query: SolanaQuery) -> napi::Result<QueryResponse> {
+    pub async fn get(&self, query: SolanaQuery) -> napi::Result<QueryResponse> {
         let rs_query: RsSolanaQuery = query.try_into().map_err(map_err)?;
         let resp = self
             .inner
@@ -77,7 +80,7 @@ impl SolanaClient {
     /// Run a single query and return the decoded response along with rate
     /// limit information from the server.
     ///
-    /// Retry and back-off behaviour is identical to `query`: a 429 is slept out
+    /// Retry and back-off behaviour is identical to `get`: a 429 is slept out
     /// against `x-ratelimit-reset` and retried. Named and shaped to match the
     /// EVM client's `getWithRateLimit`.
     #[napi]
