@@ -19,6 +19,8 @@ pub use rate_limit::{QueryResponseWithRateLimit, RateLimitInfo};
 use simple_types::SolanaResponse;
 use types::QueryResponse;
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Solana HyperSync client.
 ///
 /// Thread-safe and cheap to clone (wraps an `Arc`).
@@ -62,6 +64,10 @@ impl Client {
 
         let mut builder = reqwest::Client::builder()
             .timeout(config.http_req_timeout)
+            // Without it a dead address holds the connection in SYN_SENT until
+            // the request timeout. Hyper splits it across the resolved
+            // addresses and moves on to the next.
+            .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(user_agent.into());
 
         if let Some(ref token) = config.bearer_token {
