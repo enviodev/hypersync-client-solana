@@ -21,6 +21,9 @@ pub struct ClientConfig {
     /// Whether to proactively sleep when the rate limit is exhausted instead
     /// of sending requests that will be rejected with 429. Default: true.
     pub proactive_rate_limit_sleep: Option<bool>,
+    /// Whether to let the server cache query bodies so later pages of the
+    /// same query send a short id instead of the whole body. Default: true.
+    pub enable_query_cache: Option<bool>,
 }
 
 impl From<ClientConfig> for RustClientConfig {
@@ -48,6 +51,7 @@ impl From<ClientConfig> for RustClientConfig {
             proactive_rate_limit_sleep: c
                 .proactive_rate_limit_sleep
                 .unwrap_or(default.proactive_rate_limit_sleep),
+            enable_query_cache: c.enable_query_cache.unwrap_or(default.enable_query_cache),
         }
     }
 }
