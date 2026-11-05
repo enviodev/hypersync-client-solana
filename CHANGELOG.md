@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
 ### Added
 
-- Query-id cache (HOS-2761): a full-body query asks the server to cache its
+- Query-id cache: a full-body query asks the server to cache its
   body, and later pages of the same query send only the server-issued id plus
   their slot range to `/query/arrow/by-id`. A cache miss falls back to the full
   body within the same call; after three misses in a row a query skips the
