@@ -7,6 +7,7 @@ pub mod simple_types;
 pub mod stream;
 pub mod types;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -34,6 +35,57 @@ struct ClientInner {
     /// Last observed rate limit headers and when they were captured, for the
     /// proactive sleep in [`Client::wait_for_rate_limit`].
     rate_limit_state: std::sync::Mutex<Option<(RateLimitInfo, Instant)>>,
+    /// Server-issued query ids, keyed by [`query_cache_key`]. Only ids a
+    /// server handed back are ever sent, so the client never has to match the
+    /// server's hashing, and an old server simply never fills this.
+    query_ids: std::sync::Mutex<HashMap<QueryCacheKey, QueryIdState>>,
+}
+
+/// Per-query cache state on the client.
+#[derive(Default)]
+struct QueryIdState {
+    /// The last id the server issued for this query, if any.
+    id: Option<String>,
+    /// Misses since the last by-id hit.
+    misses: u32,
+    /// After [`MAX_CONSECUTIVE_MISSES`], the cache is skipped for this query
+    /// until then (e.g. replicas without a shared cache that keep missing).
+    paused_until: Option<Instant>,
+}
+
+/// Request header asking the server to cache the body.
+const QUERY_CACHE_HEADER: &str = "x-hypersync-query-cache";
+/// Response header carrying the id of a cached body.
+const QUERY_ID_HEADER: &str = "x-hypersync-query-id";
+/// Distinct queries remembered per client; one entry is evicted past this.
+const MAX_QUERY_IDS: usize = 1024;
+/// Consecutive by-id misses after which a query stops using the cache for
+/// [`MISS_COOLDOWN`], so a deployment that always misses costs one request
+/// per page again instead of two.
+const MAX_CONSECUTIVE_MISSES: u32 = 3;
+const MISS_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+
+type QueryCacheKey = [u8; 32];
+
+/// Identifies a query independent of its slot range, so every page of one
+/// query shares a key.
+fn query_cache_key(query: &SolanaQuery) -> Result<QueryCacheKey> {
+    use sha2::Digest;
+    let canonical = SolanaQuery {
+        from_slot: 0,
+        to_slot: None,
+        ..query.clone()
+    };
+    let json = serde_json::to_vec(&canonical).context("serialize query for cache key")?;
+    Ok(sha2::Sha256::digest(json).into())
+}
+
+/// Body of `POST /query/arrow/by-id`.
+#[derive(serde::Serialize)]
+struct QueryById<'a> {
+    query_id: &'a str,
+    from_slot: u64,
+    to_slot: Option<u64>,
 }
 
 /// Outcome of a single query POST, before retry logic.
@@ -82,6 +134,7 @@ impl Client {
                 base_url,
                 config,
                 rate_limit_state: std::sync::Mutex::new(None),
+                query_ids: std::sync::Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -230,39 +283,108 @@ impl Client {
     /// [`PostError::RateLimited`] with the parsed rate limit headers; every
     /// successful response's headers are returned so callers can track their
     /// quota.
+    ///
+    /// With a known query id this first sends just the id. A cache miss
+    /// (404, or 405 from a proxy without the route) falls back to the full
+    /// body within the same attempt; any other error is returned as is, so
+    /// an auth or validation failure is not paid for twice.
     async fn post_once(
         &self,
         query: &SolanaQuery,
+        cache_key: Option<&QueryCacheKey>,
     ) -> std::result::Result<(Vec<u8>, RateLimitInfo), PostError> {
+        let (known_id, use_cache) = match cache_key {
+            Some(key) => {
+                let ids = self.lock_query_ids();
+                match ids.get(key) {
+                    Some(st) if st.paused_until.is_some_and(|t| t > Instant::now()) => {
+                        (None, false)
+                    }
+                    Some(st) => (st.id.clone(), true),
+                    None => (None, true),
+                }
+            }
+            None => (None, false),
+        };
+        let mut store = use_cache;
+
+        if let (Some(key), Some(id)) = (cache_key, known_id) {
+            let url = format!("{}/query/arrow/by-id", self.inner.base_url);
+            let resp = self
+                .inner
+                .http
+                .post(&url)
+                .json(&QueryById {
+                    query_id: &id,
+                    from_slot: query.from_slot,
+                    to_slot: query.to_slot,
+                })
+                .send()
+                .await
+                .map_err(|e| {
+                    PostError::Other(anyhow::Error::from(e).context("execute http req"))
+                })?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::NOT_FOUND
+                || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+            {
+                tracing::debug!(%status, "query id not cached, sending the full query");
+                store = self.record_query_id_miss(key, &id);
+            } else {
+                if status.is_success() {
+                    if let Some(st) = self.lock_query_ids().get_mut(key) {
+                        st.misses = 0;
+                    }
+                }
+                return read_query_response(resp).await;
+            }
+        }
+
         let url = format!("{}/query/arrow", self.inner.base_url);
-        let resp = self
-            .inner
-            .http
-            .post(&url)
-            .json(query)
+        let mut req = self.inner.http.post(&url).json(query);
+        if store {
+            req = req.header(QUERY_CACHE_HEADER, "store");
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| PostError::Other(anyhow::Error::from(e).context("execute http req")))?;
-
-        let status = resp.status();
-        let rate_limit = RateLimitInfo::from_response(&resp);
-
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(PostError::RateLimited(rate_limit));
+        let issued_id = resp
+            .headers()
+            .get(QUERY_ID_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let res = read_query_response(resp).await?;
+        if let (Some(key), Some(id), true) = (cache_key, issued_id, store) {
+            let mut ids = self.lock_query_ids();
+            if ids.len() >= MAX_QUERY_IDS && !ids.contains_key(key) {
+                if let Some(evict) = ids.keys().next().copied() {
+                    ids.remove(&evict);
+                }
+            }
+            ids.entry(*key).or_default().id = Some(id);
         }
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(PostError::Other(anyhow::anyhow!(
-                "query returned {}: {}",
-                status,
-                body
-            )));
+        Ok(res)
+    }
+
+    /// Records a by-id miss for `missed_id` and returns whether the fallback
+    /// should still ask the server to store the body. Only clears the id if
+    /// it is still the one that missed: a concurrent request may already have
+    /// stored a fresh one.
+    fn record_query_id_miss(&self, key: &QueryCacheKey, missed_id: &str) -> bool {
+        let mut ids = self.lock_query_ids();
+        let st = ids.entry(*key).or_default();
+        if st.id.as_deref() == Some(missed_id) {
+            st.id = None;
+            st.misses += 1;
+            if st.misses >= MAX_CONSECUTIVE_MISSES {
+                tracing::debug!("query id keeps missing, pausing the query cache for this query");
+                st.misses = 0;
+                st.paused_until = Some(Instant::now() + MISS_COOLDOWN);
+                return false;
+            }
         }
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| PostError::Other(anyhow::Error::from(e).context("read response body")))?;
-        Ok((bytes.to_vec(), rate_limit))
+        true
     }
 
     /// Executes the query with retries.
@@ -279,8 +401,21 @@ impl Client {
             self.wait_for_rate_limit().await;
         }
 
+        // Computed once per call: hashing a large query is not free.
+        let cache_key = if cfg.enable_query_cache {
+            match query_cache_key(query) {
+                Ok(key) => Some(key),
+                Err(e) => {
+                    tracing::warn!(error = ?e, "query cache key failed, sending full queries");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         for attempt in 0..=cfg.max_num_retries {
-            match self.post_once(query).await {
+            match self.post_once(query, cache_key.as_ref()).await {
                 Ok((bytes, rate_limit)) => {
                     self.update_rate_limit_state(&rate_limit);
                     return Ok((bytes, rate_limit));
@@ -328,6 +463,15 @@ impl Client {
     fn lock_rate_limit_state(&self) -> std::sync::MutexGuard<'_, Option<(RateLimitInfo, Instant)>> {
         self.inner
             .rate_limit_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Locks the query id map, recovering from a poisoned mutex (a lost id
+    /// only costs a full-body request).
+    fn lock_query_ids(&self) -> std::sync::MutexGuard<'_, HashMap<QueryCacheKey, QueryIdState>> {
+        self.inner
+            .query_ids
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -419,6 +563,32 @@ impl Client {
 
         Err(last_err.unwrap_or_else(|| anyhow::anyhow!("request failed after retries")))
     }
+}
+
+/// Reads a query response: 429 becomes [`PostError::RateLimited`], any other
+/// non-success status an error carrying the body.
+async fn read_query_response(
+    resp: reqwest::Response,
+) -> std::result::Result<(Vec<u8>, RateLimitInfo), PostError> {
+    let status = resp.status();
+    let rate_limit = RateLimitInfo::from_response(&resp);
+
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(PostError::RateLimited(rate_limit));
+    }
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(PostError::Other(anyhow::anyhow!(
+            "query returned {}: {}",
+            status,
+            body
+        )));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| PostError::Other(anyhow::Error::from(e).context("read response body")))?;
+    Ok((bytes.to_vec(), rate_limit))
 }
 
 fn decode_response_tables(arrow: QueryResponse) -> Result<SolanaResponse> {

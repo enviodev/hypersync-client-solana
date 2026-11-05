@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
+### Added
+
+- Query-id cache: a full-body query asks the server to cache its
+  body, and later pages of the same query send only the server-issued id plus
+  their slot range to `/query/arrow/by-id`. A cache miss falls back to the full
+  body within the same call; after three misses in a row a query skips the
+  cache for five minutes. Other errors on the id path (auth, validation) are
+  returned as is, not retried as a full body. Servers without the cache never
+  issue an id, so they only ever see full bodies. On by default; opt out with
+  `ClientConfig::enable_query_cache = false` (Node: `enableQueryCache`).
+
 ## [0.2.0] - 2026-08-12
 
 Promotes the Wave 2 API locked in `0.2.0-rc.4` to stable and adds the

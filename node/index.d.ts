@@ -91,6 +91,11 @@ export interface ClientConfig {
    * of sending requests that will be rejected with 429. Default: true.
    */
   proactiveRateLimitSleep?: boolean
+  /**
+   * Whether to let the server cache query bodies so later pages of the
+   * same query send a short id instead of the whole body. Default: true.
+   */
+  enableQueryCache?: boolean
 }
 
 /**

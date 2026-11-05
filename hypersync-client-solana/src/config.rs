@@ -20,6 +20,12 @@ pub struct ClientConfig {
     ///
     /// Enabled by default. Set to `false` to opt out and handle rate limits yourself.
     pub proactive_rate_limit_sleep: bool,
+    /// Whether to let the server cache query bodies so later pages of the same
+    /// query send a short id instead of the whole body.
+    ///
+    /// Enabled by default. Against a server without the cache this costs
+    /// nothing: the client only sends ids the server has handed it.
+    pub enable_query_cache: bool,
 }
 
 impl Default for ClientConfig {
@@ -32,6 +38,7 @@ impl Default for ClientConfig {
             retry_base_ms: 500,
             retry_ceiling_ms: 5_000,
             proactive_rate_limit_sleep: true,
+            enable_query_cache: true,
         }
     }
 }
